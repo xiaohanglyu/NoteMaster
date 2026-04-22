@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NoteMaster</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#6366f1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --border: #334155;
+      --text: #f1f5f9; --muted: #94a3b8; --accent: #6366f1;
+      --green: #22c55e; --yellow: #eab308; --red: #ef4444;
+      --radius: 12px; --gap: 16px;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; min-height: 100dvh; }
+
+    /* Layout */
+    .view { display: none; flex-direction: column; min-height: 100dvh; padding: var(--gap); max-width: 640px; margin: 0 auto; }
+    .view.active { display: flex; }
+
+    /* Nav */
+    nav { display: flex; gap: 8px; padding: var(--gap) 0 8px; }
+    nav button { flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
+    nav button.active { border-color: var(--accent); color: var(--accent); background: #6366f115; }
+
+    /* Cards */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap); margin-bottom: var(--gap); }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; border-radius: 8px; border: none; font-size: 15px; font-weight: 500; cursor: pointer; width: 100%; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: var(--red); color: #fff; }
+    .btn-record { background: #dc262615; border: 2px solid var(--red); color: var(--red); }
+    .btn-record.recording { background: var(--red); color: #fff; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.7 } }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Stats */
+    .streak { font-size: 40px; font-weight: 700; color: var(--accent); }
+    .streak-label { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+    /* Heatmap */
+    .heatmap { display: grid; grid-template-columns: repeat(53, 1fr); gap: 2px; margin-top: 8px; }
+    .heatmap-cell { aspect-ratio: 1; border-radius: 2px; background: var(--border); }
+    .heatmap-cell[data-count="1"] { background: #6366f140; }
+    .heatmap-cell[data-count="2"] { background: #6366f180; }
+    .heatmap-cell[data-count="3"] { background: #6366f1c0; }
+    .heatmap-cell[data-count="4"] { background: var(--accent); }
+
+    /* Tags */
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 500; }
+    .tag-yellow { background: #eab30820; color: var(--yellow); }
+    .tag-green  { background: #22c55e20; color: var(--green); }
+    .tag-blue   { background: #3b82f620; color: #60a5fa; }
+
+    /* Select & input */
+    select, textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 10px 12px; font-size: 15px; font-family: inherit; }
+    select { appearance: none; }
+    textarea { resize: vertical; min-height: 100px; }
+
+    /* Feedback sections */
+    .feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+    @media (max-width: 480px) { .feedback-grid { grid-template-columns: 1fr; } }
+    .feedback-section h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    .score-bar { display: flex; gap: 4px; margin-bottom: 8px; }
+    .score-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--border); }
+    .score-dot.filled { background: var(--accent); }
+    .suggestions { list-style: none; }
+    .suggestions li { font-size: 14px; color: var(--muted); padding: 4px 0; border-bottom: 1px solid var(--border); }
+    .suggestions li::before { content: "→ "; color: var(--accent); }
+
+    /* Quiz timer */
+    .timer { font-size: 32px; font-weight: 700; text-align: center; padding: 8px; }
+    .timer.urgent { color: var(--red); }
+    .timer-bar { height: 4px; background: var(--border); border-radius: 2px; margin-bottom: var(--gap); }
+    .timer-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .9s linear, background .3s; }
+
+    /* Mastery input */
+    .mastery-btns { display: flex; gap: 8px; }
+    .mastery-btn { flex: 1; padding: 12px 0; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); font-size: 18px; font-weight: 700; cursor: pointer; }
+    .mastery-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Misc */
+    .highlight-text { font-size: 16px; line-height: 1.6; color: var(--text); }
+    .section-title { font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+    .row { display: flex; gap: var(--gap); align-items: center; }
+    .ml-auto { margin-left: auto; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    h2 { font-size: 18px; font-weight: 600; margin-bottom: var(--gap); }
+    p.muted { color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HOME VIEW ═══════════════════════ -->
+<div id="view-home" class="view active">
+  <div class="row">
+    <h1>NoteMaster</h1>
+    <button class="btn btn-secondary ml-auto" style="width:auto;padding:8px 14px;font-size:13px" onclick="openSync()">Sync</button>
+  </div>
+  <p class="muted" style="margin-bottom:var(--gap)">Turn your highlights into fluency.</p>
+
+  <!-- Streak -->
+  <div class="card" style="display:flex;align-items:center;gap:var(--gap)">
+    <div>
+      <div class="streak" id="streak-count">—</div>
+      <div class="streak-label">day streak 🔥</div>
+    </div>
+    <div style="flex:1;text-align:right;color:var(--muted);font-size:13px" id="sessions-count">— sessions</div>
+  </div>
+
+  <!-- Heatmap -->
+  <div class="card">
+    <div class="section-title">Activity — last 12 months</div>
+    <div class="heatmap" id="heatmap"></div>
+  </div>
+
+  <!-- Session config -->
+  <div class="card">
+    <h2>Start a session</h2>
+    <div class="section-title">Duration</div>
+    <div style="display:flex;gap:8px;margin-bottom:var(--gap)">
+      <button class="btn btn-secondary dur-btn active" data-min="5" onclick="selectDuration(this)">5 min</button>
+      <button class="btn btn-secondary dur-btn" data-min="10" onclick="selectDuration(this)">10 min</button>
+      <button class="btn btn-secondary dur-btn" data-min="20" onclick="selectDuration(this)">20 min</button>
+    </div>
+    <div class="section-title">Focus</div>
+    <select id="focus-select" style="margin-bottom:var(--gap)">
+      <option value="mixed">Mixed — concepts + English</option>
+      <option value="concept">Concepts only</option>
+      <option value="english">English only</option>
+      <option value="interview">Interview simulation</option>
+    </select>
+    <div class="section-title">Cards</div>
+    <select id="cards-select" style="margin-bottom:var(--gap)">
+      <option value="weak_first">Weak spots first</option>
+      <option value="all">All cards</option>
+      <option value="new_only">New only</option>
+    </select>
+    <button class="btn btn-primary" onclick="startSession()">Start reviewing</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════ REVIEW VIEW ═══════════════════════ -->
+<div id="view-review" class="view">
+  <div class="row" style="margin-bottom:var(--gap)">
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
+    <div style="margin-left:auto;font-size:13px;color:var(--muted)" id="session-timer-display"></div>
+  </div>
+
+  <!-- Highlight card -->
+  <div class="card" id="highlight-card">
+    <div class="row" style="margin-bottom:8px">
+      <span class="tag" id="highlight-color-tag"></span>
+      <span style="font-size:13px;color:var(--muted);margin-left:auto" id="highlight-book"></span>
+    </div>
+    <p class="highlight-text" id="highlight-text">Loading…</p>
+  </div>
+
+  <!-- Answer input -->
+  <div class="card" id="answer-card">
+    <div class="section-title">Your answer</div>
+    <textarea id="answer-text" placeholder="Type your answer here, or use the mic below…" style="margin-bottom:12px"></textarea>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-record" id="record-btn" onclick="toggleRecording()" style="flex:1">🎙 Hold to record</button>
+      <button class="btn btn-primary" onclick="submitText()" style="flex:1">Submit</button>
+    </div>
+  </div>
+
+  <!-- Feedback -->
+  <div class="card" id="feedback-card" style="display:none">
+    <div class="feedback-grid">
+      <div class="feedback-section">
+        <h3>Concept</h3>
+        <div class="score-bar" id="concept-score-bar"></div>
+        <p style="font-size:14px;margin-bottom:8px" id="concept-feedback"></p>
+        <ul class="suggestions" id="concept-suggestions"></ul>
+      </div>
+      <div class="feedback-section">
+        <h3>English</h3>
+        <div class="score-bar" id="english-score-bar"></div>
+        <p style="font-size:14px;margin-bottom:8px" id="english-feedback"></p>
+        <ul class="suggestions" id="english-suggestions"></ul>
+      </div>
+    </div>
+    <div style="margin-top:var(--gap)">
+      <div class="section-title">How well did you know this?</div>
+      <div class="mastery-btns">
+        <button class="mastery-btn" onclick="rateMastery(1)">1</button>
+        <button class="mastery-btn" onclick="rateMastery(2)">2</button>
+        <button class="mastery-btn" onclick="rateMastery(3)">3</button>
+        <button class="mastery-btn" onclick="rateMastery(4)">4</button>
+        <button class="mastery-btn" onclick="rateMastery(5)">5</button>
+      </div>
+      <p class="muted" style="text-align:center;margin-top:6px;font-size:12px">1 = didn't know · 5 = perfect recall</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ QUIZ VIEW ═══════════════════════ -->
+<div id="view-quiz" class="view">
+  <div class="row" style="margin-bottom:var(--gap)">
+    <h2 style="margin-bottom:0">Quiz</h2>
+    <span style="margin-left:auto;font-size:13px;color:var(--muted)" id="quiz-progress"></span>
+  </div>
+
+  <div class="timer-bar"><div class="timer-bar-fill" id="timer-bar-fill" style="width:100%"></div></div>
+  <div class="timer" id="quiz-timer">60</div>
+
+  <div class="card">
+    <div class="section-title" id="quiz-type-label"></div>
+    <p class="highlight-text" id="quiz-prompt" style="margin-bottom:var(--gap)"></p>
+    <textarea id="quiz-answer" placeholder="Type your answer…" style="margin-bottom:12px"></textarea>
+    <button class="btn btn-primary" onclick="submitQuizAnswer()">Submit answer</button>
+  </div>
+
+  <div class="card" id="quiz-feedback" style="display:none">
+    <div class="feedback-grid">
+      <div class="feedback-section">
+        <h3>Concept</h3>
+        <div class="score-bar" id="quiz-concept-bar"></div>
+        <p style="font-size:14px" id="quiz-concept-feedback"></p>
+      </div>
+      <div class="feedback-section">
+        <h3>English</h3>
+        <div class="score-bar" id="quiz-english-bar"></div>
+        <p style="font-size:14px" id="quiz-english-feedback"></p>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="margin-top:var(--gap)" id="quiz-next-btn" onclick="nextQuizQuestion()">Next question →</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════ SYNC MODAL ═══════════════════════ -->
+<div id="sync-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:100;padding:var(--gap);display:none;align-items:center">
+  <div class="card" style="width:100%;max-width:400px;margin:auto">
+    <h2>Sync highlights</h2>
+    <div class="section-title" style="margin-bottom:4px">Asset ID</div>
+    <input id="sync-asset" type="text" placeholder="e.g. ABC123DEF456" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;margin-bottom:12px">
+    <div class="section-title" style="margin-bottom:4px">Book title</div>
+    <input id="sync-title" type="text" placeholder="e.g. Designing Data-Intensive Applications" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;margin-bottom:var(--gap)">
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary" onclick="closeSync()">Cancel</button>
+      <button class="btn btn-primary" onclick="doSync()">Sync</button>
+    </div>
+    <p id="sync-result" style="margin-top:8px;font-size:14px;color:var(--green);display:none"></p>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════ STATE ═══════════════════════
+const state = {
+  sessionDuration: 5,
+  currentHighlight: null,
+  currentEval: null,
+  quizQueue: [],
+  quizIndex: 0,
+  quizTimer: null,
+  quizTimeLeft: 60,
+  mediaRecorder: null,
+  audioChunks: [],
+  recording: false,
+  sessionStart: null,
+  sessionTimerInterval: null,
+};
+
+// ═══════════════════════ API ═══════════════════════
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body instanceof FormData) {
+    opts.body = body;
+  } else if (body) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+// ═══════════════════════ NAVIGATION ═══════════════════════
+function show(viewId) {
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.getElementById("view-" + viewId).classList.add("active");
+}
+
+function goHome() {
+  clearSessionTimer();
+  show("home");
+  loadStats();
+}
+
+// ═══════════════════════ HOME ═══════════════════════
+function selectDuration(btn) {
+  document.querySelectorAll(".dur-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  state.sessionDuration = parseInt(btn.dataset.min);
+}
+
+async function loadStats() {
+  try {
+    const data = await api("GET", "/stats");
+    document.getElementById("streak-count").textContent = data.streak;
+    document.getElementById("sessions-count").textContent = `${data.sessions.length} sessions`;
+    renderHeatmap(data.heatmap);
+  } catch (e) {
+    console.warn("Stats unavailable:", e.message);
+  }
+}
+
+function renderHeatmap(heatmap) {
+  const el = document.getElementById("heatmap");
+  el.innerHTML = "";
+  const today = new Date();
+  for (let i = 364; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const cell = document.createElement("div");
+    cell.className = "heatmap-cell";
+    const count = heatmap[key] || 0;
+    if (count) cell.dataset.count = Math.min(count, 4);
+    cell.title = key;
+    el.appendChild(cell);
+  }
+}
+
+// ═══════════════════════ SESSION ═══════════════════════
+async function startSession() {
+  const focus = document.getElementById("focus-select").value;
+  const cards = document.getElementById("cards-select").value;
+  try {
+    const h = await api("GET", `/session/next?focus_area=${focus}&card_selection=${cards}`);
+    state.currentHighlight = h;
+    state.sessionStart = Date.now();
+    renderHighlight(h);
+    resetAnswerCard();
+    show("review");
+    startSessionTimer();
+  } catch (e) {
+    if (e.message.startsWith("404")) alert("No highlights due for review. Sync first or adjust your card selection.");
+    else alert("Error: " + e.message);
+  }
+}
+
+function renderHighlight(h) {
+  document.getElementById("highlight-text").textContent = h.text;
+  document.getElementById("highlight-book").textContent = h.book_title;
+  const tag = document.getElementById("highlight-color-tag");
+  const labels = { yellow: "English", green: "Concept", blue: "Concept + English" };
+  tag.textContent = labels[h.color] || h.color;
+  tag.className = `tag tag-${h.color}`;
+}
+
+function resetAnswerCard() {
+  document.getElementById("answer-text").value = "";
+  document.getElementById("answer-card").style.display = "block";
+  document.getElementById("feedback-card").style.display = "none";
+}
+
+function startSessionTimer() {
+  clearSessionTimer();
+  const endAt = Date.now() + state.sessionDuration * 60 * 1000;
+  state.sessionTimerInterval = setInterval(() => {
+    const left = Math.max(0, endAt - Date.now());
+    const m = Math.floor(left / 60000);
+    const s = Math.floor((left % 60000) / 1000);
+    document.getElementById("session-timer-display").textContent =
+      `${m}:${s.toString().padStart(2, "0")} left`;
+    if (left === 0) {
+      clearSessionTimer();
+      startQuiz();
+    }
+  }, 1000);
+}
+
+function clearSessionTimer() {
+  clearInterval(state.sessionTimerInterval);
+  state.sessionTimerInterval = null;
+}
+
+// ═══════════════════════ ANSWER ═══════════════════════
+async function submitText() {
+  const answer = document.getElementById("answer-text").value.trim();
+  if (!answer) return;
+  await submitAnswer(answer);
+}
+
+async function submitAnswer(answer) {
+  try {
+    const result = await api("POST", "/answer/text", {
+      highlight_id: state.currentHighlight.id,
+      answer,
+    });
+    state.currentEval = result;
+    renderFeedback(result);
+  } catch (e) {
+    alert("Error getting feedback: " + e.message);
+  }
+}
+
+function renderFeedback(result) {
+  document.getElementById("answer-card").style.display = "none";
+  document.getElementById("feedback-card").style.display = "block";
+
+  renderScoreBar("concept-score-bar", result.concept_score);
+  renderScoreBar("english-score-bar", result.english_score);
+  document.getElementById("concept-feedback").textContent = result.concept_feedback;
+  document.getElementById("english-feedback").textContent = result.english_feedback;
+
+  const cs = document.getElementById("concept-suggestions");
+  cs.innerHTML = result.concept_suggestions.map(s => `<li>${s}</li>`).join("");
+  const es = document.getElementById("english-suggestions");
+  es.innerHTML = result.english_suggestions.map(s => `<li>${s}</li>`).join("");
+}
+
+function renderScoreBar(id, score) {
+  const el = document.getElementById(id);
+  el.innerHTML = Array.from({ length: 5 }, (_, i) =>
+    `<div class="score-dot ${i < score ? "filled" : ""}"></div>`
+  ).join("");
+}
+
+async function rateMastery(score) {
+  try {
+    await api("POST", "/answer/text", {
+      highlight_id: state.currentHighlight.id,
+      answer: `[mastery:${score}]`,
+    });
+  } catch (_) {}
+  await loadNextHighlight();
+}
+
+async function loadNextHighlight() {
+  const focus = document.getElementById("focus-select").value;
+  const cards = document.getElementById("cards-select").value;
+  try {
+    const h = await api("GET", `/session/next?focus_area=${focus}&card_selection=${cards}`);
+    state.currentHighlight = h;
+    renderHighlight(h);
+    resetAnswerCard();
+  } catch (_) {
+    startQuiz();
+  }
+}
+
+// ═══════════════════════ VOICE RECORDING ═══════════════════════
+function getBestMimeType() {
+  const types = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
+  return types.find(t => MediaRecorder.isTypeSupported(t)) || "audio/webm";
+}
+
+async function toggleRecording() {
+  if (state.recording) {
+    state.mediaRecorder?.stop();
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = getBestMimeType();
+    state.audioChunks = [];
+    state.mediaRecorder = new MediaRecorder(stream, { mimeType });
+    state.mediaRecorder.ondataavailable = e => state.audioChunks.push(e.data);
+    state.mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      state.recording = false;
+      document.getElementById("record-btn").classList.remove("recording");
+      document.getElementById("record-btn").textContent = "🎙 Hold to record";
+      const blob = new Blob(state.audioChunks, { type: mimeType });
+      await submitVoice(blob, mimeType);
+    };
+    state.mediaRecorder.start();
+    state.recording = true;
+    document.getElementById("record-btn").classList.add("recording");
+    document.getElementById("record-btn").textContent = "⏹ Recording… tap to stop";
+  } catch (e) {
+    alert("Microphone access denied or unavailable.");
+  }
+}
+
+async function submitVoice(blob, mimeType) {
+  const form = new FormData();
+  form.append("highlight_id", state.currentHighlight.id);
+  form.append("audio", blob, `recording.${mimeType.split("/")[1].split(";")[0]}`);
+  try {
+    const result = await api("POST", "/answer/voice", form);
+    state.currentEval = result;
+    renderFeedback(result);
+  } catch (e) {
+    alert("Error processing voice: " + e.message);
+  }
+}
+
+// ═══════════════════════ QUIZ ═══════════════════════
+async function startQuiz() {
+  const focus = document.getElementById("focus-select").value;
+  const allHighlights = [];
+  for (let i = 0; i < 5; i++) {
+    try {
+      const h = await api("GET", `/session/next?focus_area=${focus}&card_selection=all`);
+      if (!allHighlights.find(x => x.id === h.id)) allHighlights.push(h);
+    } catch (_) { break; }
+  }
+  if (allHighlights.length === 0) { goHome(); return; }
+  state.quizQueue = allHighlights;
+  state.quizIndex = 0;
+  show("quiz");
+  showQuizQuestion();
+}
+
+function showQuizQuestion() {
+  const h = state.quizQueue[state.quizIndex];
+  if (!h) { endQuiz(); return; }
+  document.getElementById("quiz-progress").textContent =
+    `${state.quizIndex + 1} / ${state.quizQueue.length}`;
+  const typeLabels = { yellow: "English expression", green: "Concept definition", blue: "Concept + English" };
+  document.getElementById("quiz-type-label").textContent = typeLabels[h.color] || "Review";
+  document.getElementById("quiz-prompt").textContent =
+    h.color === "yellow"
+      ? `Identify any unnatural or incorrect English and suggest a better version:\n"${h.text}"`
+      : `Explain this concept in your own words:\n"${h.text}"`;
+  document.getElementById("quiz-answer").value = "";
+  document.getElementById("quiz-feedback").style.display = "none";
+  startQuizTimer();
+}
+
+function startQuizTimer() {
+  clearQuizTimer();
+  state.quizTimeLeft = 60;
+  updateTimerDisplay(60);
+  state.quizTimer = setInterval(() => {
+    state.quizTimeLeft--;
+    updateTimerDisplay(state.quizTimeLeft);
+    if (state.quizTimeLeft <= 0) {
+      clearQuizTimer();
+      submitQuizAnswer();
+    }
+  }, 1000);
+}
+
+function clearQuizTimer() {
+  clearInterval(state.quizTimer);
+  state.quizTimer = null;
+}
+
+function updateTimerDisplay(t) {
+  const el = document.getElementById("quiz-timer");
+  el.textContent = t;
+  el.className = "timer" + (t <= 10 ? " urgent" : "");
+  document.getElementById("timer-bar-fill").style.width = (t / 60 * 100) + "%";
+  if (t <= 10) document.getElementById("timer-bar-fill").style.background = "var(--red)";
+  else document.getElementById("timer-bar-fill").style.background = "var(--accent)";
+}
+
+async function submitQuizAnswer() {
+  clearQuizTimer();
+  const answer = document.getElementById("quiz-answer").value.trim() || "(no answer)";
+  const h = state.quizQueue[state.quizIndex];
+  try {
+    const result = await api("POST", "/answer/text", { highlight_id: h.id, answer });
+    renderQuizFeedback(result);
+  } catch (e) {
+    nextQuizQuestion();
+  }
+}
+
+function renderQuizFeedback(result) {
+  renderScoreBar("quiz-concept-bar", result.concept_score);
+  renderScoreBar("quiz-english-bar", result.english_score);
+  document.getElementById("quiz-concept-feedback").textContent = result.concept_feedback;
+  document.getElementById("quiz-english-feedback").textContent = result.english_feedback;
+  document.getElementById("quiz-feedback").style.display = "block";
+  const isLast = state.quizIndex >= state.quizQueue.length - 1;
+  document.getElementById("quiz-next-btn").textContent = isLast ? "Finish quiz ✓" : "Next question →";
+}
+
+function nextQuizQuestion() {
+  state.quizIndex++;
+  if (state.quizIndex >= state.quizQueue.length) { endQuiz(); return; }
+  showQuizQuestion();
+}
+
+function endQuiz() {
+  goHome();
+}
+
+// ═══════════════════════ SYNC MODAL ═══════════════════════
+function openSync() {
+  document.getElementById("sync-modal").style.display = "flex";
+}
+function closeSync() {
+  document.getElementById("sync-modal").style.display = "none";
+}
+async function doSync() {
+  const asset_id = document.getElementById("sync-asset").value.trim();
+  const book_title = document.getElementById("sync-title").value.trim();
+  if (!asset_id || !book_title) return;
+  try {
+    const r = await api("POST", "/sync", { asset_id, book_title });
+    const msg = document.getElementById("sync-result");
+    msg.style.display = "block";
+    msg.textContent = `✓ Synced ${r.synced} highlights`;
+    setTimeout(closeSync, 2000);
+  } catch (e) {
+    alert("Sync failed: " + e.message);
+  }
+}
+
+// ═══════════════════════ PWA ═══════════════════════
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
+// ═══════════════════════ BOOT ═══════════════════════
+loadStats();
+</script>
+</body>
+</html>
