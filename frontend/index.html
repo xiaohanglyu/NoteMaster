@@ -241,6 +241,8 @@
     .kanban-col-offer .kanban-card { border-color: #22c55e40; }
     .kanban-col-rejected .kanban-card { opacity: .6; }
     .kanban-col-offer { border-color: #22c55e40; }
+    .kanban-col.drag-over { border-color: var(--accent); background: #6366f110; }
+    .kanban-card.dragging { opacity: .35; }
 
     /* Job detail panel */
     .job-detail-overlay { display: none; position: fixed; inset: 0; background: #00000088; z-index: 200; }
@@ -563,7 +565,10 @@
 <div id="view-questions" class="view">
   <div class="row" style="margin-bottom:12px">
     <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
-    <h2 style="margin:0 0 0 12px">Questions</h2>
+    <div style="margin-left:12px">
+      <h2 style="margin:0">Questions</h2>
+      <span id="q-context-label" style="display:none;font-size:12px;color:var(--accent)"></span>
+    </div>
     <button class="btn btn-primary" style="width:auto;padding:8px 14px;font-size:13px;gap:6px;margin-left:auto" onclick="startQuestionReview()">
       Study <span id="q-due-count" class="due-badge" style="display:none"></span>
     </button>
@@ -611,7 +616,7 @@
 <!-- Question review card (reuses review view pattern) -->
 <div id="view-q-review" class="view">
   <div class="row" style="margin-bottom:var(--gap)">
-    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="show('questions');loadQuestions()">← Back</button>
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="show('questions');loadQuestions()">← Questions</button>
     <span style="color:var(--muted);font-size:13px;margin-left:auto" id="q-review-progress"></span>
   </div>
   <div class="card" id="q-review-card">
@@ -1622,20 +1627,54 @@ function renderKanban() {
     const cards = _jobs.filter(j => j.status === col.key);
     const colEl = document.createElement("div");
     colEl.className = `kanban-col kanban-col-${col.key}`;
+    colEl.dataset.status = col.key;
     colEl.innerHTML = `
       <div class="kanban-col-header">
         ${col.label}
         <span class="col-count">${cards.length}</span>
       </div>
       ${cards.map(j => `
-        <div class="kanban-card" onclick="openJobDetail('${j.id}')">
+        <div class="kanban-card" draggable="true" data-id="${j.id}" onclick="openJobDetail('${j.id}')">
           <div class="kc-company">${escHtml(j.company)}</div>
           <div class="kc-role">${escHtml(j.role)}</div>
           <div class="kc-meta">${j.applied_at ? j.applied_at : ''}${j.location ? ' · ' + escHtml(j.location) : ''}</div>
         </div>
       `).join("")}
     `;
+
+    colEl.addEventListener("dragover", e => {
+      e.preventDefault();
+      colEl.classList.add("drag-over");
+    });
+    colEl.addEventListener("dragleave", e => {
+      if (!colEl.contains(e.relatedTarget)) colEl.classList.remove("drag-over");
+    });
+    colEl.addEventListener("drop", async e => {
+      e.preventDefault();
+      colEl.classList.remove("drag-over");
+      const jobId = e.dataTransfer.getData("text/plain");
+      const newStatus = colEl.dataset.status;
+      const job = _jobs.find(j => j.id === jobId);
+      if (!job || job.status === newStatus) return;
+      job.status = newStatus;
+      renderKanban();
+      try {
+        await api("PATCH", `/applications/${jobId}`, { status: newStatus });
+      } catch (err) {
+        await loadJobs();
+      }
+    });
+
     board.appendChild(colEl);
+  });
+
+  board.querySelectorAll(".kanban-card").forEach(card => {
+    card.addEventListener("dragstart", e => {
+      e.dataTransfer.setData("text/plain", card.dataset.id);
+      e.dataTransfer.effectAllowed = "move";
+      setTimeout(() => card.classList.add("dragging"), 0);
+    });
+    card.addEventListener("dragend", () => card.classList.remove("dragging"));
   });
 }
 
@@ -1707,10 +1746,10 @@ async function openJobDetail(id) {
   ).join("");
   statusSel.dataset.jobId = id;
   const meta = [
-    j.location ? `📍 ${j.location}` : "",
-    j.work_model ? j.work_model : "",
-    j.salary_range ? `💰 ${j.salary_range}` : "",
-    j.applied_at ? `📅 ${j.applied_at}` : "",
+    j.location ? escHtml(j.location) : "",
+    j.work_model ? escHtml(j.work_model) : "",
+    j.salary_range ? escHtml(j.salary_range) : "",
+    j.applied_at ? j.applied_at : "",
     j.job_link ? `<a href="${escHtml(j.job_link)}" target="_blank" style="color:var(--accent)">Job link ↗</a>` : "",
     j.notes ? `<em>${escHtml(j.notes)}</em>` : "",
   ].filter(Boolean).join("<br>");
@@ -1721,9 +1760,12 @@ async function openJobDetail(id) {
     const rounds = detail.rounds || [];
     document.getElementById("job-detail-rounds").innerHTML = rounds.length
       ? rounds.map(r => `
-          <div class="round-item">
-            <strong>${escHtml(r.name)}</strong>${r.date ? ` · ${r.date}` : ""}
+          <div class="round-item" style="cursor:pointer" onclick="openQuestionsForRound('${id}','${escHtml(r.name).replace(/'/g,"\\'")}')">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <strong>${escHtml(r.name)}</strong>${r.date ? `<span style="font-size:11px;color:var(--muted)">${r.date}</span>` : ""}
+            </div>
             ${r.feedback ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${escHtml(r.feedback)}</div>` : ""}
+            <div style="font-size:11px;color:var(--accent);margin-top:4px">View questions →</div>
           </div>`).join("")
       : `<div class="empty" style="padding:16px 0;font-size:13px">No rounds yet</div>`;
   } catch (e) { document.getElementById("job-detail-rounds").innerHTML = ""; }
@@ -1774,7 +1816,13 @@ function viewQuestionsForJob() {
   if (!_currentJobId) return;
   const j = _jobs.find(j => j.id === _currentJobId);
   closeJobDetail();
-  openQuestions(j ? j.company : null);
+  openQuestions({ appId: _currentJobId, label: j ? j.company : null });
+}
+
+function openQuestionsForRound(appId, round) {
+  const j = _jobs.find(j => j.id === appId);
+  closeJobDetail();
+  openQuestions({ appId, round, label: j ? `${j.company} · ${round}` : round });
 }
 
 function escHtml(s) {
@@ -1785,35 +1833,47 @@ function escHtml(s) {
 
 let _questions = [];
 let _qFilter = { type: null, due: false };
+let _qContext = { appId: null, round: null, label: null };
 let _qReviewQueue = [];
 let _qReviewIndex = 0;
 
-async function openQuestions(filterCompany) {
+async function openQuestions(opts = {}) {
+  _qContext = { appId: opts.appId || null, round: opts.round || null, label: opts.label || null };
   show("questions");
-  await loadQuestions(filterCompany);
+  await loadQuestions();
 }
 
-async function loadQuestions(filterCompany) {
+async function loadQuestions() {
   try {
-    let url = "/questions";
-    if (_qFilter.due) url += "?due_only=true";
-    else if (_qFilter.type) url += `?q_type=${_qFilter.type}`;
-    _questions = await api("GET", url);
+    const params = new URLSearchParams();
+    if (_qFilter.due) params.set("due_only", "true");
+    if (_qFilter.type) params.set("q_type", _qFilter.type);
+    if (_qContext.appId) params.set("application_id", _qContext.appId);
+    const qs = params.toString();
+    _questions = await api("GET", "/questions" + (qs ? "?" + qs : ""));
 
-    if (filterCompany) {
-      const apps = await api("GET", "/applications");
-      const appId = (apps.find(a => a.company === filterCompany) || {}).id;
-      if (appId) _questions = _questions.filter(q => q.application_id === appId);
+    if (_qContext.round) {
+      _questions = _questions.filter(q => q.round === _qContext.round);
     }
 
-    // Update due badge
+    // Context label (breadcrumb)
+    const labelEl = document.getElementById("q-context-label");
+    if (labelEl) {
+      if (_qContext.label) {
+        labelEl.textContent = _qContext.label;
+        labelEl.style.display = "inline";
+      } else {
+        labelEl.style.display = "none";
+      }
+    }
+
+    // Due badge
     const due = await api("GET", "/questions?due_only=true");
-    const badge = document.getElementById("q-due-count");
-    const homeBadge = document.getElementById("questions-due-badge");
     const count = due.length;
-    badge.textContent = count;
-    badge.style.display = count > 0 ? "inline" : "none";
-    if (homeBadge) { homeBadge.textContent = count; homeBadge.style.display = count > 0 ? "inline" : "none"; }
+    ["q-due-count", "questions-due-badge"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = count; el.style.display = count > 0 ? "inline" : "none"; }
+    });
 
     renderQuestions();
   } catch (e) { console.warn("Questions unavailable:", e); }
@@ -1875,6 +1935,7 @@ function setQFilter(btn, key, val) {
   _qFilter = { type: null, due: false };
   if (key === "type") _qFilter.type = val;
   if (key === "due") _qFilter.due = val;
+  _qContext = { appId: null, round: null, label: null };
   loadQuestions();
 }
 
