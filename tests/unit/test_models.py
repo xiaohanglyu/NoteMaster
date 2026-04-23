@@ -22,6 +22,7 @@ class TestHighlight:
             id="abc123",
             text="Replication lag occurs when...",
             color=HighlightColor.GREEN,
+            book_id="book-1",
             book_title="Designing Data-Intensive Applications",
             chapter="Chapter 5",
         )
@@ -34,6 +35,7 @@ class TestHighlight:
                 id="abc123",
                 text="some text",
                 color="purple",
+                book_id="book-1",
                 book_title="DDIA",
                 chapter="Chapter 1",
             )
@@ -43,6 +45,7 @@ class TestHighlight:
             id="abc123",
             text="some text",
             color=HighlightColor.YELLOW,
+            book_id="book-1",
             book_title="DDIA",
         )
         assert h.chapter is None
@@ -157,6 +160,29 @@ class TestReviewRecord:
                 mastery_score=0,
                 last_reviewed_at=datetime(2026, 4, 22),
                 next_review_at=datetime(2026, 4, 29),
+            )
+
+
+class TestConceptReviewRecord:
+    def test_valid_record(self):
+        from notemaster.models import ConceptReviewRecord
+        r = ConceptReviewRecord(
+            concept_id="concept-1",
+            mastery_score=4,
+            reviewed_at=datetime(2026, 4, 22, 10, 0),
+            next_review_at=datetime(2026, 5, 6, 10, 0),
+        )
+        assert r.concept_id == "concept-1"
+        assert r.mastery_score == 4
+
+    def test_mastery_score_out_of_range(self):
+        from notemaster.models import ConceptReviewRecord
+        with pytest.raises(Exception):
+            ConceptReviewRecord(
+                concept_id="concept-1",
+                mastery_score=6,
+                reviewed_at=datetime(2026, 4, 22),
+                next_review_at=datetime(2026, 5, 6),
             )
 
 

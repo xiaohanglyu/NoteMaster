@@ -1,31 +1,84 @@
 # NoteMaster
 
-A local-first study system that turns Apple Books highlights into structured interview preparation and English learning sessions, powered by a self-hosted AI.
+A local-first study system that turns Apple Books highlights into a knowledge graph, then drives structured interview preparation and English learning sessions — powered by a self-hosted AI.
 
 ## Motivation
 
-Reading technical books is easy. Retaining concepts well enough to explain them in a senior engineering interview is hard. NoteMaster bridges that gap by pulling highlights directly from Apple Books and turning them into active recall sessions — with AI feedback on both technical depth and English expression.
+Reading technical books is easy. Retaining concepts well enough to explain them in a senior engineering interview is hard. NoteMaster bridges that gap by pulling highlights directly from Apple Books, using AI to synthesize them into a connected knowledge graph, and then driving active recall sessions — with AI feedback on both technical depth and English expression.
 
 The backend runs on your Mac. The web UI is accessible from any device on the same local network — Mac, iPhone, or iPad — with no installation required on mobile devices.
 
 ## Features
 
+- **Knowledge graph** — AI synthesizes highlights into concept nodes and builds a directed graph of relationships (depends on, contrasts with, part of, example of)
+- **Weight-based review queue** — each concept carries a weight derived from its highlight coverage; weight rises when you struggle, falls when you master the concept, and drives how often it appears in review
 - **Session modes** — choose duration (5 / 10 / 20 min or custom) and focus area: concepts, English, mixed, or full interview simulation
 - **Voice or text input** — answer out loud or type; voice is transcribed locally on-device
 - **Dual AI feedback** — one evaluation grades technical accuracy and Senior Backend depth; another grades English grammar, vocabulary, and naturalness
-- **Timed quiz** — each session ends with a 60-second-per-question quiz across three question types: define, error-correction, and scenario
-- **Spaced repetition** — items are scheduled by mastery score so weak spots resurface more often
+- **Spaced repetition** — SM-2 scheduling, modulated by concept weight so high-weight concepts resurface more frequently
 - **Streak and heatmap** — GitHub-style activity heatmap and daily streak counter to track consistency
+
+## How it works
+
+```
+Apple Books highlights
+        ↓
+   POST /sync          — import highlights for a book
+        ↓
+POST /synthesize       — AI agentic loop: group highlights into concepts, build graph edges
+        ↓
+ GET /session/next     — pick next concept by weight × urgency
+        ↓
+POST /answer/text|voice — evaluate answer, update weight, schedule next review
+```
+
+## Knowledge graph
+
+Highlights are the raw signal; concepts are the knowledge units the review system operates on.
+
+### Concept weight
+
+| Event | Effect on weight |
+|-------|-----------------|
+| Concept created | `Σ highlight color factors` — GREEN 1.5, BLUE 1.3, YELLOW 1.0 |
+| After review | multiplied by mastery factor — score 1 → ×1.4 … score 5 → ×0.7 |
+| New highlights added on re-read | recalculated from updated highlight set |
+
+Higher weight → shorter SM-2 intervals → reviewed more often.
+Review priority = `weight × (1 + days overdue)`.
+
+### Edge relation types
+
+| Relation | Meaning |
+|----------|---------|
+| `depends_on` | understanding A requires understanding B |
+| `contrasts_with` | A and B differ in a meaningful way |
+| `part_of` | A is a component of B |
+| `example_of` | A is a concrete instance of B |
 
 ## Highlight color convention
 
-NoteMaster reads highlight color from Apple Books to route each item to the right learning track:
+NoteMaster reads highlight color from Apple Books to route each item to the right learning track and set initial concept weight:
 
-| Color | Meaning | Learning track |
-|-------|---------|----------------|
-| Yellow | English vocabulary, phrases, or sentence patterns | English track |
-| Green | Technical concepts | Concept track |
-| Blue | Both — an important concept expressed in notable English | Both tracks |
+| Color | Meaning | Weight factor |
+|-------|---------|--------------|
+| Yellow | English vocabulary, phrases, or sentence patterns | 1.0 |
+| Green | Technical concepts | 1.5 |
+| Blue | Both — an important concept expressed in notable English | 1.3 |
+
+## API reference
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/books` | List synced books |
+| `POST` | `/sync` | Import highlights from Apple Books |
+| `POST` | `/synthesize` | AI synthesis: highlights → concepts + edges |
+| `GET` | `/session/next` | Next concept due for review |
+| `GET` | `/session/queue` | Full priority queue |
+| `POST` | `/answer/text` | Submit text answer; get AI evaluation |
+| `POST` | `/answer/voice` | Submit voice answer; get AI evaluation |
+| `GET` | `/graph` | Knowledge graph (nodes + edges) |
+| `GET` | `/stats` | Streak, heatmap, study sessions |
 
 ## Tech stack
 
@@ -107,12 +160,30 @@ Or press `Ctrl+C` if running in the foreground.
 
 **Sync highlights from Apple Books**
 
-Open the app in the browser, click **Sync** in the top-right corner, enter the book's asset ID and title. To find the asset ID for a book:
+Find the asset ID for a book:
 
 ```bash
 sqlite3 ~/Library/Containers/com.apple.iBooksX/Data/Documents/BKLibrary/BKLibrary-1-091020131601.sqlite \
   "SELECT ZASSETID, ZTITLE FROM ZBKLIBRARYASSET WHERE ZTITLE LIKE '%<book name>%';"
 ```
+
+Then sync via the app's **Sync** button or the API:
+
+```bash
+.venv/bin/python -m notemaster sync <asset_id> "<book title>"
+```
+
+**Build the knowledge graph**
+
+After syncing, trigger AI synthesis to convert highlights into concepts and edges:
+
+```bash
+curl -X POST http://localhost:8000/synthesize \
+  -H "Content-Type: application/json" \
+  -d '{"book_id": "<book_id returned by sync>"}'
+```
+
+The AI will group related highlights into concept nodes and link them with typed edges. This runs as an agentic loop — the model calls tools to read highlights, create concepts, and build edges until all highlights are processed.
 
 ## Privacy
 
@@ -125,12 +196,13 @@ sqlite3 ~/Library/Containers/com.apple.iBooksX/Data/Documents/BKLibrary/BKLibrar
 ```
 NoteMaster/
 ├── notemaster/
-│   ├── models.py       # Data models: Highlight, EvaluationResult, SessionConfig
+│   ├── models.py       # Data models: Book, Highlight, Concept, ConceptEdge, ReviewRecord
 │   ├── books.py        # Read highlights from Apple Books SQLite
 │   ├── stt.py          # mlx-whisper transcription
-│   ├── ai.py           # Prompts and local AI API calls
+│   ├── ai.py           # evaluate() + synthesize() agentic loop
+│   ├── tools.py        # AI tool schemas (SYNTHESIS_TOOLS, REVIEW_TOOLS) + ToolHandler
 │   ├── session.py      # Session scheduling and spaced repetition
-│   ├── db.py           # App database: progress, streak, quiz results
+│   ├── db.py           # App database: books, concepts, edges, reviews, stats
 │   └── main.py         # FastAPI app and CLI entry point
 ├── frontend/
 │   └── index.html
@@ -148,12 +220,46 @@ NoteMaster/
 
 ## Development
 
-This project follows TDD. Tests are split into two groups:
+### TDD methodology
+
+This project is built test-first. Every new behaviour is written as a failing test before any implementation.
+
+**Test split:**
+
+| Group | Command | When to run |
+|-------|---------|-------------|
+| Unit | `pytest tests/unit/` | Always — no external dependencies |
+| Integration | `pytest -m integration` | Manually — requires local AI server and Apple Books |
+
+**Unit test coverage by module:**
+
+| File | What it covers |
+|------|---------------|
+| `test_models.py` | Pydantic validation — field types, ranges, required fields |
+| `test_books.py` | Apple Books SQLite reader — color mapping, filtering, deleted highlights |
+| `test_db.py` | Database layer — Books, Highlights, Concepts, Edges, weight helpers, review scheduling, study sessions |
+| `test_tools.py` | AI tool schemas — required params, ToolHandler dispatch, weight side-effects per tool call |
+| `test_ai.py` | AI evaluation — prompt content, JSON parsing, markdown code block handling |
+| `test_session.py` | Highlight-level session filtering — focus area routing, card selection modes |
+| `test_main.py` | FastAPI endpoints — status codes, request validation, mock DB/AI wiring |
+
+**Running tests:**
 
 ```bash
-pytest -m unit          # No external dependencies, runs anywhere
-pytest -m integration   # Requires local AI server and Apple Books; run manually
+# All unit tests (fast, no external deps)
+pytest tests/unit/
+
+# Single file
+pytest tests/unit/test_tools.py -v
+
+# Integration tests (requires AI server + Apple Books)
+pytest -m integration
 ```
+
+**TDD workflow for new features:**
+1. Write a failing test in the appropriate `tests/unit/` file
+2. Implement the minimum code to make it pass
+3. Refactor — tests stay green throughout
 
 ## License
 TODO

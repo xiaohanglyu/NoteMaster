@@ -8,6 +8,7 @@
   <meta name="theme-color" content="#6366f1">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -24,11 +25,6 @@
     .view { display: none; flex-direction: column; min-height: 100dvh; padding: var(--gap); max-width: 640px; margin: 0 auto; }
     .view.active { display: flex; }
 
-    /* Nav */
-    nav { display: flex; gap: 8px; padding: var(--gap) 0 8px; }
-    nav button { flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
-    nav button.active { border-color: var(--accent); color: var(--accent); background: #6366f115; }
-
     /* Cards */
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap); margin-bottom: var(--gap); }
 
@@ -41,6 +37,7 @@
     .btn-record.recording { background: var(--red); color: #fff; animation: pulse 1.2s infinite; }
     @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.7 } }
     .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-active { background: #6366f120 !important; border-color: var(--accent) !important; color: var(--accent) !important; }
 
     /* Stats */
     .streak { font-size: 40px; font-weight: 700; color: var(--accent); }
@@ -59,13 +56,14 @@
     .tag-yellow { background: #eab30820; color: var(--yellow); }
     .tag-green  { background: #22c55e20; color: var(--green); }
     .tag-blue   { background: #3b82f620; color: #60a5fa; }
+    .weight-badge { display: inline-block; background: #6366f120; color: var(--accent); border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
 
     /* Select & input */
-    select, textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 10px 12px; font-size: 15px; font-family: inherit; }
+    select, textarea, input[type="text"] { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 10px 12px; font-size: 15px; font-family: inherit; }
     select { appearance: none; }
     textarea { resize: vertical; min-height: 100px; }
 
-    /* Feedback sections */
+    /* Feedback */
     .feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
     @media (max-width: 480px) { .feedback-grid { grid-template-columns: 1fr; } }
     .feedback-section h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
@@ -82,13 +80,13 @@
     .timer-bar { height: 4px; background: var(--border); border-radius: 2px; margin-bottom: var(--gap); }
     .timer-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .9s linear, background .3s; }
 
-    /* Mastery input */
+    /* Mastery */
     .mastery-btns { display: flex; gap: 8px; }
     .mastery-btn { flex: 1; padding: 12px 0; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); font-size: 18px; font-weight: 700; cursor: pointer; }
     .mastery-btn:hover { border-color: var(--accent); color: var(--accent); }
 
     /* Misc */
-    .highlight-text { font-size: 16px; line-height: 1.6; color: var(--text); }
+    .concept-title-display { font-size: 18px; font-weight: 700; line-height: 1.4; color: var(--text); margin-bottom: 6px; }
     .section-title { font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
     .empty { text-align: center; color: var(--muted); padding: 40px 0; }
     .row { display: flex; gap: var(--gap); align-items: center; }
@@ -96,6 +94,136 @@
     h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
     h2 { font-size: 18px; font-weight: 600; margin-bottom: var(--gap); }
     p.muted { color: var(--muted); font-size: 14px; }
+
+    /* ═══ GRAPH VIEW ═══ */
+    #view-graph {
+      max-width: none !important;
+      padding: 0;
+      height: 100dvh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .graph-toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #graph-canvas {
+      flex: 1;
+      width: 100%;
+      display: block;
+      cursor: grab;
+      background: var(--bg);
+    }
+    #graph-canvas:active { cursor: grabbing; }
+
+    .graph-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 6px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+    .legend-line { width: 18px; height: 2px; border-radius: 1px; }
+
+    /* Add-edge overlay */
+    #add-edge-bar {
+      display: none;
+      position: absolute;
+      bottom: 56px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      align-items: center;
+      gap: 10px;
+      z-index: 20;
+      font-size: 13px;
+      box-shadow: 0 4px 24px #0009;
+      white-space: nowrap;
+    }
+    #add-edge-bar.show { display: flex; }
+    #add-edge-bar select { width: 160px; padding: 6px 10px; font-size: 13px; }
+
+    /* Node panel */
+    #node-panel {
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: min(360px, 88vw);
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      transform: translateX(100%);
+      transition: transform .22s ease;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+    }
+    #node-panel.open { transform: translateX(0); }
+
+    .panel-inner { padding: 14px; flex: 1; }
+    .panel-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; }
+    .panel-close { background: none; border: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; padding: 0; flex-shrink: 0; margin-left: auto; }
+
+    .edge-list { list-style: none; margin-top: 4px; }
+    .edge-item { display: flex; align-items: center; gap: 6px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+    .edge-rel { font-size: 10px; background: var(--bg); border-radius: 4px; padding: 2px 5px; color: var(--muted); flex-shrink: 0; }
+    .edge-target { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .edge-dir { font-size: 11px; color: var(--accent); flex-shrink: 0; }
+    .btn-edge-del { background: none; border: none; color: var(--red); cursor: pointer; font-size: 15px; padding: 0 2px; opacity: .5; flex-shrink: 0; }
+    .btn-edge-del:hover { opacity: 1; }
+
+    .panel-hl { font-size: 12px; color: var(--muted); line-height: 1.6; border-left: 2px solid var(--border); padding-left: 8px; margin-bottom: 6px; }
+    .panel-hl.green { border-color: #22c55e; }
+    .panel-hl.yellow { border-color: #eab308; }
+    .panel-hl.blue   { border-color: #60a5fa; }
+
+    /* ═══ ENGLISH VIEW ═══ */
+    .entry-capture { display: flex; flex-direction: column; gap: 8px; margin-bottom: var(--gap); }
+    .entry-capture input[type="text"] { font-size: 17px; padding: 12px 14px; }
+    .entry-capture input[type="text"]:focus { outline: none; border-color: var(--accent); }
+    .entry-capture-note { font-size: 14px; padding: 8px 12px; }
+    .capture-row { display: flex; gap: 8px; }
+    .capture-row .btn { flex: 1; }
+
+    .entry-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .entry-text { font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 4px; line-height: 1.4; }
+    .entry-phonetics { font-size: 13px; color: var(--accent); margin-bottom: 6px; font-style: italic; letter-spacing: .3px; }
+    .entry-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .entry-source { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+    .entry-source.manual  { border-color: #6366f140; color: var(--accent); }
+    .entry-source.highlight { border-color: #eab30840; color: var(--yellow); }
+    .entry-source.ocr { border-color: #3b82f640; color: #60a5fa; }
+    .btn-tts { background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 15px; padding: 4px 10px; cursor: pointer; flex-shrink: 0; }
+    .btn-tts:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-enrich { background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 12px; padding: 4px 10px; cursor: pointer; flex-shrink: 0; }
+    .btn-enrich:hover { border-color: var(--yellow); color: var(--yellow); }
+    .due-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; background: var(--accent); color: #fff; border-radius: 99px; font-size: 11px; font-weight: 700; padding: 0 5px; }
+
+    /* ═══ USAGE BOX (entry review card) ═══ */
+    .usage-box { background: #6366f10d; border: 1px solid #6366f130; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+    .usage-word-class { display: inline-block; background: #6366f122; color: var(--accent); border-radius: 5px; padding: 2px 9px; font-size: 12px; font-weight: 700; margin-bottom: 10px; text-transform: lowercase; letter-spacing: .2px; }
+    .usage-row { display: flex; gap: 10px; margin-bottom: 8px; align-items: flex-start; }
+    .usage-row:last-child { margin-bottom: 0; }
+    .usage-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; min-width: 72px; flex-shrink: 0; padding-top: 3px; font-weight: 700; }
+    .usage-value { font-size: 14px; color: var(--text); line-height: 1.55; }
+    .usage-pattern { display: inline; font-size: 15px; font-weight: 600; color: var(--yellow); font-family: 'SF Mono', ui-monospace, monospace; background: #eab30812; border-radius: 5px; padding: 1px 7px; line-height: 1.6; }
+    .entry-examples { margin-top: 4px; }
+    .entry-example { font-size: 13px; color: var(--muted); line-height: 1.65; padding: 5px 0; border-bottom: 1px solid var(--border); }
+    .entry-example:last-child { border-bottom: none; }
+    .entry-example em { color: var(--text); font-style: normal; }
   </style>
 </head>
 <body>
@@ -104,47 +232,46 @@
 <div id="view-home" class="view active">
   <div class="row">
     <h1>NoteMaster</h1>
-    <button class="btn btn-secondary ml-auto" style="width:auto;padding:8px 14px;font-size:13px" onclick="openSync()">Sync</button>
+    <div class="row ml-auto" style="gap:8px;width:auto">
+      <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;gap:6px" onclick="openEnglish()">
+        English <span id="english-due-badge" class="due-badge" style="display:none"></span>
+      </button>
+      <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="openGraphView()">Graph</button>
+      <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="document.getElementById('file-import-input').click()" title="Import .txt / .md / .pdf as concepts">Import</button>
+      <input type="file" id="file-import-input" accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf" style="display:none" onchange="importFile(this)">
+      <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="openSync()">Sync</button>
+    </div>
   </div>
   <p class="muted" style="margin-bottom:var(--gap)">Turn your highlights into fluency.</p>
 
-  <!-- Streak -->
   <div class="card" style="display:flex;align-items:center;gap:var(--gap)">
     <div>
       <div class="streak" id="streak-count">—</div>
-      <div class="streak-label">day streak 🔥</div>
+      <div class="streak-label">day streak</div>
     </div>
     <div style="flex:1;text-align:right;color:var(--muted);font-size:13px" id="sessions-count">— sessions</div>
   </div>
 
-  <!-- Heatmap -->
   <div class="card">
     <div class="section-title">Activity — last 12 months</div>
     <div class="heatmap" id="heatmap"></div>
   </div>
 
-  <!-- Session config -->
   <div class="card">
     <h2>Start a session</h2>
+    <div class="section-title">Focus</div>
+    <div style="display:flex;gap:8px;margin-bottom:var(--gap);flex-wrap:wrap">
+      <button class="btn btn-secondary focus-btn active" data-focus="mixed" onclick="selectFocus(this)">Mixed</button>
+      <button class="btn btn-secondary focus-btn" data-focus="concepts" onclick="selectFocus(this)">Concepts</button>
+      <button class="btn btn-secondary focus-btn" data-focus="english" onclick="selectFocus(this)">English</button>
+      <button class="btn btn-secondary focus-btn" data-focus="interview" onclick="selectFocus(this)">Interview</button>
+    </div>
     <div class="section-title">Duration</div>
     <div style="display:flex;gap:8px;margin-bottom:var(--gap)">
       <button class="btn btn-secondary dur-btn active" data-min="5" onclick="selectDuration(this)">5 min</button>
       <button class="btn btn-secondary dur-btn" data-min="10" onclick="selectDuration(this)">10 min</button>
       <button class="btn btn-secondary dur-btn" data-min="20" onclick="selectDuration(this)">20 min</button>
     </div>
-    <div class="section-title">Focus</div>
-    <select id="focus-select" style="margin-bottom:var(--gap)">
-      <option value="mixed">Mixed — concepts + English</option>
-      <option value="concept">Concepts only</option>
-      <option value="english">English only</option>
-      <option value="interview">Interview simulation</option>
-    </select>
-    <div class="section-title">Cards</div>
-    <select id="cards-select" style="margin-bottom:var(--gap)">
-      <option value="weak_first">Weak spots first</option>
-      <option value="all">All cards</option>
-      <option value="new_only">New only</option>
-    </select>
     <button class="btn btn-primary" onclick="startSession()">Start reviewing</button>
   </div>
 </div>
@@ -156,26 +283,24 @@
     <div style="margin-left:auto;font-size:13px;color:var(--muted)" id="session-timer-display"></div>
   </div>
 
-  <!-- Highlight card -->
-  <div class="card" id="highlight-card">
-    <div class="row" style="margin-bottom:8px">
-      <span class="tag" id="highlight-color-tag"></span>
-      <span style="font-size:13px;color:var(--muted);margin-left:auto" id="highlight-book"></span>
+  <div class="card" id="concept-card">
+    <div class="row" style="margin-bottom:10px">
+      <span class="weight-badge" id="concept-weight-badge"></span>
+      <span style="font-size:13px;color:var(--muted);margin-left:auto" id="concept-book"></span>
     </div>
-    <p class="highlight-text" id="highlight-text">Loading…</p>
+    <div class="concept-title-display" id="concept-title-display"></div>
+    <p style="font-size:14px;color:var(--muted);line-height:1.6;margin-top:6px" id="concept-summary-display"></p>
   </div>
 
-  <!-- Answer input -->
   <div class="card" id="answer-card">
-    <div class="section-title">Your answer</div>
+    <div class="section-title">Explain this concept</div>
     <textarea id="answer-text" placeholder="Type your answer here, or use the mic below…" style="margin-bottom:12px"></textarea>
     <div style="display:flex;gap:8px">
-      <button class="btn btn-record" id="record-btn" onclick="toggleRecording()" style="flex:1">🎙 Hold to record</button>
+      <button class="btn btn-record" id="record-btn" onclick="toggleRecording()" style="flex:1">🎙 Record</button>
       <button class="btn btn-primary" onclick="submitText()" style="flex:1">Submit</button>
     </div>
   </div>
 
-  <!-- Feedback -->
   <div class="card" id="feedback-card" style="display:none">
     <div class="feedback-grid">
       <div class="feedback-section">
@@ -205,53 +330,112 @@
   </div>
 </div>
 
-<!-- ═══════════════════════ QUIZ VIEW ═══════════════════════ -->
-<div id="view-quiz" class="view">
-  <div class="row" style="margin-bottom:var(--gap)">
-    <h2 style="margin-bottom:0">Quiz</h2>
-    <span style="margin-left:auto;font-size:13px;color:var(--muted)" id="quiz-progress"></span>
+<!-- ═══════════════════════ GRAPH VIEW ═══════════════════════ -->
+<div id="view-graph" class="view" style="flex-direction:column">
+  <div class="graph-toolbar">
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;flex-shrink:0" onclick="goHome()">← Home</button>
+    <select id="graph-book-select" style="flex:1;min-width:0;margin:0;padding:8px 10px;font-size:13px" onchange="loadGraph()">
+      <option value="">Select book…</option>
+    </select>
+    <button class="btn btn-secondary" style="width:auto;padding:8px 12px;font-size:13px;flex-shrink:0" onclick="loadGraph()" title="Refresh">↺</button>
+    <button class="btn btn-secondary" id="add-edge-btn" style="width:auto;padding:8px 12px;font-size:13px;flex-shrink:0" onclick="toggleAddEdge()">+ Edge</button>
+    <button class="btn btn-primary" style="width:auto;padding:8px 12px;font-size:13px;flex-shrink:0" onclick="doSynthesize()">Synthesize</button>
   </div>
 
-  <div class="timer-bar"><div class="timer-bar-fill" id="timer-bar-fill" style="width:100%"></div></div>
-  <div class="timer" id="quiz-timer">60</div>
+  <svg id="graph-canvas"></svg>
 
-  <div class="card">
-    <div class="section-title" id="quiz-type-label"></div>
-    <p class="highlight-text" id="quiz-prompt" style="margin-bottom:var(--gap)"></p>
-    <textarea id="quiz-answer" placeholder="Type your answer…" style="margin-bottom:12px"></textarea>
-    <button class="btn btn-primary" onclick="submitQuizAnswer()">Submit answer</button>
+  <div class="graph-legend">
+    <span class="legend-item"><span class="legend-line" style="background:#8b5cf6;border-top:2px dashed #8b5cf6;height:0"></span>depends_on</span>
+    <span class="legend-item"><span class="legend-line" style="background:#f97316"></span>contrasts_with</span>
+    <span class="legend-item"><span class="legend-line" style="background:#3b82f6"></span>part_of</span>
+    <span class="legend-item"><span class="legend-line" style="background:#22c55e;border-top:2px dotted #22c55e;height:0"></span>example_of</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">drag to move · dblclick to unpin · click to edit</span>
   </div>
 
-  <div class="card" id="quiz-feedback" style="display:none">
-    <div class="feedback-grid">
-      <div class="feedback-section">
-        <h3>Concept</h3>
-        <div class="score-bar" id="quiz-concept-bar"></div>
-        <p style="font-size:14px" id="quiz-concept-feedback"></p>
+  <!-- Add-edge bottom bar -->
+  <div id="add-edge-bar">
+    <span id="add-edge-status" style="color:var(--muted)">Click source node</span>
+    <select id="relation-select" style="margin:0;padding:6px 10px;font-size:13px;width:auto">
+      <option value="depends_on">depends_on</option>
+      <option value="contrasts_with">contrasts_with</option>
+      <option value="part_of">part_of</option>
+      <option value="example_of">example_of</option>
+    </select>
+    <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="cancelAddEdge()">Cancel</button>
+  </div>
+
+  <!-- Node detail panel -->
+  <div id="node-panel">
+    <div class="panel-inner">
+      <div class="panel-header">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:16px;margin-bottom:4px" id="panel-title-text"></div>
+          <span class="weight-badge" id="panel-weight-badge"></span>
+        </div>
+        <button class="panel-close" onclick="closePanel()">×</button>
       </div>
-      <div class="feedback-section">
-        <h3>English</h3>
-        <div class="score-bar" id="quiz-english-bar"></div>
-        <p style="font-size:14px" id="quiz-english-feedback"></p>
-      </div>
+
+      <div class="section-title">Title</div>
+      <input type="text" id="panel-title-input" style="margin-bottom:12px;font-size:14px;padding:8px 10px">
+
+      <div class="section-title">Summary</div>
+      <textarea id="panel-summary" style="margin-bottom:12px;min-height:110px;font-size:13px"></textarea>
+
+      <button class="btn btn-primary" style="margin-bottom:18px;font-size:14px" onclick="saveConceptEdit()">Save changes</button>
+
+      <div class="section-title">Connections</div>
+      <ul class="edge-list" id="panel-edges"></ul>
+
+      <div class="section-title" style="margin-top:16px">Source highlights</div>
+      <div id="panel-highlights"></div>
     </div>
-    <button class="btn btn-primary" style="margin-top:var(--gap)" id="quiz-next-btn" onclick="nextQuizQuestion()">Next question →</button>
   </div>
 </div>
 
+<!-- ═══════════════════════ ENGLISH VIEW ═══════════════════════ -->
+<div id="view-english" class="view">
+  <div class="row" style="margin-bottom:var(--gap)">
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
+    <h2 style="margin:0 0 0 12px">English</h2>
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;margin-left:auto" onclick="enrichAll()" id="enrich-all-btn">Enrich all</button>
+    <button id="english-review-btn" class="btn btn-primary" style="width:auto;padding:8px 14px;font-size:13px;gap:6px" onclick="startEntryReview()">
+      Review <span id="english-review-badge" class="due-badge" style="display:none"></span>
+    </button>
+  </div>
+
+  <!-- Quick capture -->
+  <div class="card">
+    <div class="section-title" style="margin-bottom:8px">Quick add</div>
+    <div class="entry-capture">
+      <input type="text" id="entry-input" placeholder="Type a phrase, word, or sentence…" autocomplete="off" autocorrect="off" spellcheck="false"
+        onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); submitEntry(); }">
+      <input type="text" id="entry-note" class="entry-capture-note" placeholder="来源 / Source (optional, e.g. DDIA, Netflix)" autocomplete="off">
+      <div class="capture-row">
+        <button class="btn btn-primary" onclick="submitEntry()">Add</button>
+        <button class="btn btn-secondary" style="flex:0 0 auto;width:auto;padding:12px 14px" onclick="document.getElementById('ocr-input').click()" title="Import from photo">📷</button>
+        <input type="file" id="ocr-input" accept="image/*" style="display:none" onchange="importImage(this)">
+      </div>
+    </div>
+  </div>
+
+  <!-- Entry list -->
+  <div id="entry-list"></div>
+</div>
+
 <!-- ═══════════════════════ SYNC MODAL ═══════════════════════ -->
-<div id="sync-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:100;padding:var(--gap);display:none;align-items:center">
+<div id="sync-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:100;padding:var(--gap);align-items:center">
   <div class="card" style="width:100%;max-width:400px;margin:auto">
     <h2>Sync highlights</h2>
     <div class="section-title" style="margin-bottom:4px">Asset ID</div>
-    <input id="sync-asset" type="text" placeholder="e.g. ABC123DEF456" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;margin-bottom:12px">
+    <input id="sync-asset" type="text" placeholder="e.g. ABC123DEF456" style="margin-bottom:12px">
     <div class="section-title" style="margin-bottom:4px">Book title</div>
-    <input id="sync-title" type="text" placeholder="e.g. Designing Data-Intensive Applications" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;margin-bottom:var(--gap)">
+    <input id="sync-title" type="text" placeholder="e.g. Designing Data-Intensive Applications" style="margin-bottom:var(--gap)">
     <div style="display:flex;gap:8px">
       <button class="btn btn-secondary" onclick="closeSync()">Cancel</button>
       <button class="btn btn-primary" onclick="doSync()">Sync</button>
     </div>
     <p id="sync-result" style="margin-top:8px;font-size:14px;color:var(--green);display:none"></p>
+    <button id="synthesize-btn" class="btn btn-secondary" style="display:none;margin-top:8px;font-size:13px" onclick="doSynthesize()">✦ Synthesize concepts</button>
   </div>
 </div>
 
@@ -259,15 +443,16 @@
 // ═══════════════════════ STATE ═══════════════════════
 const state = {
   sessionDuration: 5,
-  currentHighlight: null,
+  focusArea: "mixed",
+  currentConcept: null,
   currentEval: null,
-  quizQueue: [],
-  quizIndex: 0,
-  quizTimer: null,
-  quizTimeLeft: 60,
+  currentEntry: null,
   mediaRecorder: null,
   audioChunks: [],
   recording: false,
+  entryRecording: false,
+  entryMediaRecorder: null,
+  entryAudioChunks: [],
   sessionStart: null,
   sessionTimerInterval: null,
 };
@@ -299,6 +484,12 @@ function goHome() {
 }
 
 // ═══════════════════════ HOME ═══════════════════════
+function selectFocus(btn) {
+  document.querySelectorAll(".focus-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  state.focusArea = btn.dataset.focus;
+}
+
 function selectDuration(btn) {
   document.querySelectorAll(".dur-btn").forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
@@ -311,9 +502,7 @@ async function loadStats() {
     document.getElementById("streak-count").textContent = data.streak;
     document.getElementById("sessions-count").textContent = `${data.sessions.length} sessions`;
     renderHeatmap(data.heatmap);
-  } catch (e) {
-    console.warn("Stats unavailable:", e.message);
-  }
+  } catch (e) { console.warn("Stats unavailable:", e.message); }
 }
 
 function renderHeatmap(heatmap) {
@@ -335,29 +524,56 @@ function renderHeatmap(heatmap) {
 
 // ═══════════════════════ SESSION ═══════════════════════
 async function startSession() {
-  const focus = document.getElementById("focus-select").value;
-  const cards = document.getElementById("cards-select").value;
+  const focus = state.focusArea;
+  if (focus === "english") {
+    await openEnglish();
+    await startEntryReview();
+    return;
+  }
+  if (focus === "mixed" || focus === "interview") {
+    await startMixedSession();
+    return;
+  }
+  // concepts only
   try {
-    const h = await api("GET", `/session/next?focus_area=${focus}&card_selection=${cards}`);
-    state.currentHighlight = h;
+    const c = await api("GET", "/session/next");
+    state.currentConcept = c;
     state.sessionStart = Date.now();
-    renderHighlight(h);
+    renderConcept(c);
     resetAnswerCard();
     show("review");
     startSessionTimer();
   } catch (e) {
-    if (e.message.startsWith("404")) alert("No highlights due for review. Sync first or adjust your card selection.");
+    if (e.message.startsWith("404")) alert("No concepts due. Synthesize first or switch focus to English.");
     else alert("Error: " + e.message);
   }
 }
 
-function renderHighlight(h) {
-  document.getElementById("highlight-text").textContent = h.text;
-  document.getElementById("highlight-book").textContent = h.book_title;
-  const tag = document.getElementById("highlight-color-tag");
-  const labels = { yellow: "English", green: "Concept", blue: "Concept + English" };
-  tag.textContent = labels[h.color] || h.color;
-  tag.className = `tag tag-${h.color}`;
+async function startMixedSession() {
+  // Try concepts first; fall back to entries
+  try {
+    const c = await api("GET", "/session/next");
+    state.currentConcept = c;
+    state.sessionStart = Date.now();
+    renderConcept(c);
+    resetAnswerCard();
+    show("review");
+    startSessionTimer();
+    return;
+  } catch (_) {}
+  try {
+    await openEnglish();
+    await startEntryReview();
+  } catch (_) {
+    alert("All caught up! Nothing due for review.");
+  }
+}
+
+function renderConcept(c) {
+  document.getElementById("concept-title-display").textContent = c.title;
+  document.getElementById("concept-summary-display").textContent = c.summary;
+  document.getElementById("concept-weight-badge").textContent = `weight ${c.weight.toFixed(2)}`;
+  document.getElementById("concept-book").textContent = "";
 }
 
 function resetAnswerCard() {
@@ -375,10 +591,7 @@ function startSessionTimer() {
     const s = Math.floor((left % 60000) / 1000);
     document.getElementById("session-timer-display").textContent =
       `${m}:${s.toString().padStart(2, "0")} left`;
-    if (left === 0) {
-      clearSessionTimer();
-      startQuiz();
-    }
+    if (left === 0) { clearSessionTimer(); goHome(); }
   }, 1000);
 }
 
@@ -391,226 +604,777 @@ function clearSessionTimer() {
 async function submitText() {
   const answer = document.getElementById("answer-text").value.trim();
   if (!answer) return;
-  await submitAnswer(answer);
-}
-
-async function submitAnswer(answer) {
   try {
     const result = await api("POST", "/answer/text", {
-      highlight_id: state.currentHighlight.id,
-      answer,
+      concept_id: state.currentConcept.id, answer,
     });
     state.currentEval = result;
     renderFeedback(result);
-  } catch (e) {
-    alert("Error getting feedback: " + e.message);
-  }
+  } catch (e) { alert("Error getting feedback: " + e.message); }
 }
 
 function renderFeedback(result) {
   document.getElementById("answer-card").style.display = "none";
   document.getElementById("feedback-card").style.display = "block";
-
   renderScoreBar("concept-score-bar", result.concept_score);
   renderScoreBar("english-score-bar", result.english_score);
   document.getElementById("concept-feedback").textContent = result.concept_feedback;
   document.getElementById("english-feedback").textContent = result.english_feedback;
-
-  const cs = document.getElementById("concept-suggestions");
-  cs.innerHTML = result.concept_suggestions.map(s => `<li>${s}</li>`).join("");
-  const es = document.getElementById("english-suggestions");
-  es.innerHTML = result.english_suggestions.map(s => `<li>${s}</li>`).join("");
+  document.getElementById("concept-suggestions").innerHTML =
+    result.concept_suggestions.map(s => `<li>${s}</li>`).join("");
+  document.getElementById("english-suggestions").innerHTML =
+    result.english_suggestions.map(s => `<li>${s}</li>`).join("");
 }
 
 function renderScoreBar(id, score) {
-  const el = document.getElementById(id);
-  el.innerHTML = Array.from({ length: 5 }, (_, i) =>
+  document.getElementById(id).innerHTML = Array.from({ length: 5 }, (_, i) =>
     `<div class="score-dot ${i < score ? "filled" : ""}"></div>`
   ).join("");
 }
 
 async function rateMastery(score) {
   try {
-    await api("POST", "/answer/text", {
-      highlight_id: state.currentHighlight.id,
-      answer: `[mastery:${score}]`,
-    });
+    await api("POST", `/concepts/${state.currentConcept.id}/review`, { mastery_score: score });
   } catch (_) {}
-  await loadNextHighlight();
-}
-
-async function loadNextHighlight() {
-  const focus = document.getElementById("focus-select").value;
-  const cards = document.getElementById("cards-select").value;
   try {
-    const h = await api("GET", `/session/next?focus_area=${focus}&card_selection=${cards}`);
-    state.currentHighlight = h;
-    renderHighlight(h);
+    const c = await api("GET", "/session/next");
+    state.currentConcept = c;
+    renderConcept(c);
     resetAnswerCard();
-  } catch (_) {
-    startQuiz();
-  }
+  } catch (_) { goHome(); }
 }
 
-// ═══════════════════════ VOICE RECORDING ═══════════════════════
+// ═══════════════════════ VOICE ═══════════════════════
 function getBestMimeType() {
   const types = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
   return types.find(t => MediaRecorder.isTypeSupported(t)) || "audio/webm";
 }
 
 async function toggleRecording() {
-  if (state.recording) {
-    state.mediaRecorder?.stop();
-    return;
-  }
+  if (state.recording) { state.mediaRecorder?.stop(); return; }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const mimeType = getBestMimeType();
     state.audioChunks = [];
     state.mediaRecorder = new MediaRecorder(stream, { mimeType });
-    state.mediaRecorder.ondataavailable = e => state.audioChunks.push(e.data);
+    state.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) state.audioChunks.push(e.data); };
     state.mediaRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
       state.recording = false;
       document.getElementById("record-btn").classList.remove("recording");
-      document.getElementById("record-btn").textContent = "🎙 Hold to record";
+      document.getElementById("record-btn").textContent = "🎙 Record";
       const blob = new Blob(state.audioChunks, { type: mimeType });
-      await submitVoice(blob, mimeType);
+      if (blob.size === 0) { alert("No audio captured — please try again."); return; }
+      const form = new FormData();
+      form.append("concept_id", state.currentConcept.id);
+      form.append("audio", blob, `rec.${mimeType.split("/")[1].split(";")[0]}`);
+      try {
+        const result = await api("POST", "/answer/voice", form);
+        state.currentEval = result;
+        renderFeedback(result);
+      } catch (e) { alert("Error processing voice: " + e.message); }
     };
-    state.mediaRecorder.start();
+    state.mediaRecorder.start(250);
     state.recording = true;
     document.getElementById("record-btn").classList.add("recording");
-    document.getElementById("record-btn").textContent = "⏹ Recording… tap to stop";
-  } catch (e) {
-    alert("Microphone access denied or unavailable.");
-  }
-}
-
-async function submitVoice(blob, mimeType) {
-  const form = new FormData();
-  form.append("highlight_id", state.currentHighlight.id);
-  form.append("audio", blob, `recording.${mimeType.split("/")[1].split(";")[0]}`);
-  try {
-    const result = await api("POST", "/answer/voice", form);
-    state.currentEval = result;
-    renderFeedback(result);
-  } catch (e) {
-    alert("Error processing voice: " + e.message);
-  }
-}
-
-// ═══════════════════════ QUIZ ═══════════════════════
-async function startQuiz() {
-  const focus = document.getElementById("focus-select").value;
-  const allHighlights = [];
-  for (let i = 0; i < 5; i++) {
-    try {
-      const h = await api("GET", `/session/next?focus_area=${focus}&card_selection=all`);
-      if (!allHighlights.find(x => x.id === h.id)) allHighlights.push(h);
-    } catch (_) { break; }
-  }
-  if (allHighlights.length === 0) { goHome(); return; }
-  state.quizQueue = allHighlights;
-  state.quizIndex = 0;
-  show("quiz");
-  showQuizQuestion();
-}
-
-function showQuizQuestion() {
-  const h = state.quizQueue[state.quizIndex];
-  if (!h) { endQuiz(); return; }
-  document.getElementById("quiz-progress").textContent =
-    `${state.quizIndex + 1} / ${state.quizQueue.length}`;
-  const typeLabels = { yellow: "English expression", green: "Concept definition", blue: "Concept + English" };
-  document.getElementById("quiz-type-label").textContent = typeLabels[h.color] || "Review";
-  document.getElementById("quiz-prompt").textContent =
-    h.color === "yellow"
-      ? `Identify any unnatural or incorrect English and suggest a better version:\n"${h.text}"`
-      : `Explain this concept in your own words:\n"${h.text}"`;
-  document.getElementById("quiz-answer").value = "";
-  document.getElementById("quiz-feedback").style.display = "none";
-  startQuizTimer();
-}
-
-function startQuizTimer() {
-  clearQuizTimer();
-  state.quizTimeLeft = 60;
-  updateTimerDisplay(60);
-  state.quizTimer = setInterval(() => {
-    state.quizTimeLeft--;
-    updateTimerDisplay(state.quizTimeLeft);
-    if (state.quizTimeLeft <= 0) {
-      clearQuizTimer();
-      submitQuizAnswer();
-    }
-  }, 1000);
-}
-
-function clearQuizTimer() {
-  clearInterval(state.quizTimer);
-  state.quizTimer = null;
-}
-
-function updateTimerDisplay(t) {
-  const el = document.getElementById("quiz-timer");
-  el.textContent = t;
-  el.className = "timer" + (t <= 10 ? " urgent" : "");
-  document.getElementById("timer-bar-fill").style.width = (t / 60 * 100) + "%";
-  if (t <= 10) document.getElementById("timer-bar-fill").style.background = "var(--red)";
-  else document.getElementById("timer-bar-fill").style.background = "var(--accent)";
-}
-
-async function submitQuizAnswer() {
-  clearQuizTimer();
-  const answer = document.getElementById("quiz-answer").value.trim() || "(no answer)";
-  const h = state.quizQueue[state.quizIndex];
-  try {
-    const result = await api("POST", "/answer/text", { highlight_id: h.id, answer });
-    renderQuizFeedback(result);
-  } catch (e) {
-    nextQuizQuestion();
-  }
-}
-
-function renderQuizFeedback(result) {
-  renderScoreBar("quiz-concept-bar", result.concept_score);
-  renderScoreBar("quiz-english-bar", result.english_score);
-  document.getElementById("quiz-concept-feedback").textContent = result.concept_feedback;
-  document.getElementById("quiz-english-feedback").textContent = result.english_feedback;
-  document.getElementById("quiz-feedback").style.display = "block";
-  const isLast = state.quizIndex >= state.quizQueue.length - 1;
-  document.getElementById("quiz-next-btn").textContent = isLast ? "Finish quiz ✓" : "Next question →";
-}
-
-function nextQuizQuestion() {
-  state.quizIndex++;
-  if (state.quizIndex >= state.quizQueue.length) { endQuiz(); return; }
-  showQuizQuestion();
-}
-
-function endQuiz() {
-  goHome();
+    document.getElementById("record-btn").textContent = "⏹ Stop";
+  } catch (e) { alert("Microphone access denied."); }
 }
 
 // ═══════════════════════ SYNC MODAL ═══════════════════════
-function openSync() {
-  document.getElementById("sync-modal").style.display = "flex";
-}
-function closeSync() {
-  document.getElementById("sync-modal").style.display = "none";
-}
+function openSync() { document.getElementById("sync-modal").style.display = "flex"; }
+function closeSync() { document.getElementById("sync-modal").style.display = "none"; }
+let _lastSyncedBookId = null;
+
 async function doSync() {
   const asset_id = document.getElementById("sync-asset").value.trim();
   const book_title = document.getElementById("sync-title").value.trim();
   if (!asset_id || !book_title) return;
   try {
     const r = await api("POST", "/sync", { asset_id, book_title });
+    _lastSyncedBookId = r.book_id;
     const msg = document.getElementById("sync-result");
     msg.style.display = "block";
-    msg.textContent = `✓ Synced ${r.synced} highlights`;
+    const entriesNote = r.entries_synced ? ` · ${r.entries_synced} entries` : "";
+    msg.textContent = `✓ Synced ${r.synced} highlights${entriesNote}`;
+    const synthBtn = document.getElementById("synthesize-btn");
+    synthBtn.style.display = "block";
+    synthBtn.dataset.bookId = r.book_id;
+  } catch (e) { alert("Sync failed: " + e.message); }
+}
+
+async function doSynthesize() {
+  const btn = document.getElementById("synthesize-btn");
+  const book_id = btn.dataset.bookId;
+  btn.disabled = true;
+  btn.textContent = "Synthesizing…";
+  try {
+    const r = await api("POST", "/synthesize", { book_id });
+    btn.textContent = `✓ ${r.concepts} concepts · ${r.edges} edges`;
     setTimeout(closeSync, 2000);
   } catch (e) {
-    alert("Sync failed: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "✦ Synthesize concepts";
+    alert("Synthesize failed: " + e.message);
+  }
+}
+
+async function enrichAll() {
+  const btn = document.getElementById("enrich-all-btn");
+  btn.disabled = true;
+  btn.textContent = "Queuing…";
+  try {
+    const r = await api("POST", "/entries/enrich-all");
+    btn.textContent = r.queued ? `✓ Queued ${r.queued}` : "All enriched";
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Enrich all"; }, 3000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "Enrich all";
+    alert("Error: " + e.message);
+  }
+}
+
+// ═══════════════════════ GRAPH ═══════════════════════
+const EDGE_COLOR = {
+  depends_on:    "#8b5cf6",
+  contrasts_with: "#f97316",
+  part_of:       "#3b82f6",
+  example_of:    "#22c55e",
+};
+const EDGE_DASH = {
+  depends_on: "8,4",
+  contrasts_with: "",
+  part_of: "",
+  example_of: "2,4",
+};
+
+const g = {
+  sim: null, linkSel: null, nodeSel: null, gEl: null,
+  nodes: [], links: [],
+  conceptMap: {},    // id → {id,title,weight,...}
+  selectedId: null,
+  addEdgeMode: false,
+  edgeSourceId: null,
+};
+
+function nRadius(d) { return Math.max(10, Math.min(28, 8 + d.weight * 3.2)); }
+function nFill(d) {
+  const w = d.weight;
+  if (w < 1.0) return "#334155";
+  if (w < 2.0) return "#1e40af";
+  if (w < 3.0) return "#4338ca";
+  if (w < 4.5) return "#7c3aed";
+  return "#9333ea";
+}
+
+async function openGraphView() {
+  show("graph");
+  const books = await api("GET", "/books").catch(() => []);
+  const sel = document.getElementById("graph-book-select");
+  sel.innerHTML = '<option value="">Select book…</option>';
+  books.forEach(b => {
+    const o = document.createElement("option");
+    o.value = b.id; o.textContent = b.title;
+    sel.appendChild(o);
+  });
+  if (books.length > 0) { sel.value = books[0].id; await loadGraph(); }
+}
+
+async function loadGraph() {
+  const bookId = document.getElementById("graph-book-select").value;
+  if (!bookId) return;
+  closePanel();
+
+  try {
+    const [gData, concepts] = await Promise.all([
+      api("GET", `/graph?book_id=${bookId}`),
+      api("GET", `/concepts?book_id=${bookId}`),
+    ]);
+    g.conceptMap = {};
+    concepts.forEach(c => { g.conceptMap[c.id] = c; });
+
+    const nodes = gData.nodes.map(n => ({ ...n }));
+    const links = gData.edges.map(e => ({
+      source: e.from, target: e.to, relation: e.relation,
+    }));
+    renderGraph(nodes, links);
+  } catch (e) { alert("Graph load failed: " + e.message); }
+}
+
+function renderGraph(nodes, links) {
+  g.nodes = nodes;
+  g.links = links;
+
+  const svg = d3.select("#graph-canvas");
+  svg.selectAll("*").remove();
+
+  const W = svg.node().clientWidth || window.innerWidth;
+  const H = svg.node().clientHeight || (window.innerHeight - 120);
+
+  // Zoom
+  const zoom = d3.zoom().scaleExtent([0.08, 6])
+    .on("zoom", e => g.gEl.attr("transform", e.transform));
+  svg.call(zoom);
+  svg.on("dblclick.zoom", null); // disable svg dblclick zoom
+
+  g.gEl = svg.append("g");
+
+  // Simulation
+  g.sim = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id(d => d.id).distance(160).strength(0.6))
+    .force("charge", d3.forceManyBody().strength(-380))
+    .force("center", d3.forceCenter(W / 2, H / 2))
+    .force("collision", d3.forceCollide(d => nRadius(d) + 10));
+
+  // Links
+  g.linkSel = g.gEl.append("g").attr("class", "links")
+    .selectAll("line")
+    .data(links)
+    .join("line")
+    .attr("stroke", d => EDGE_COLOR[d.relation] || "#475569")
+    .attr("stroke-width", 2)
+    .attr("stroke-dasharray", d => EDGE_DASH[d.relation] || "")
+    .attr("stroke-opacity", 0.65);
+
+  // Node groups
+  const drag = d3.drag()
+    .on("start", (e, d) => { if (!e.active) g.sim.alphaTarget(0.25).restart(); d.fx = d.x; d.fy = d.y; })
+    .on("drag",  (e, d) => { d.fx = e.x; d.fy = e.y; })
+    .on("end",   (e, d) => { if (!e.active) g.sim.alphaTarget(0); });
+
+  g.nodeSel = g.gEl.append("g").attr("class", "nodes")
+    .selectAll("g")
+    .data(nodes, d => d.id)
+    .join("g")
+    .attr("class", "node-g")
+    .call(drag)
+    .on("click", (e, d) => {
+      e.stopPropagation();
+      if (g.addEdgeMode) { handleAddEdgeClick(d.id); return; }
+      selectNode(d.id);
+    })
+    .on("dblclick", (e, d) => {
+      e.stopPropagation();
+      d.fx = null; d.fy = null;
+      g.sim.alpha(0.2).restart();
+    });
+
+  g.nodeSel.append("circle")
+    .attr("r", d => nRadius(d))
+    .attr("fill", d => nFill(d))
+    .attr("stroke", "#0f172a")
+    .attr("stroke-width", 2);
+
+  g.nodeSel.append("text")
+    .text(d => d.title.length > 20 ? d.title.slice(0, 18) + "…" : d.title)
+    .attr("text-anchor", "middle")
+    .attr("dy", d => nRadius(d) + 13)
+    .attr("font-size", 10)
+    .attr("fill", "#94a3b8")
+    .style("pointer-events", "none")
+    .style("user-select", "none");
+
+  // Tick
+  g.sim.on("tick", () => {
+    g.linkSel
+      .attr("x1", d => d.source.x)
+      .attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x)
+      .attr("y2", d => d.target.y);
+    g.nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+  });
+
+  // Fit after settling
+  setTimeout(() => {
+    try {
+      const box = g.gEl.node().getBBox();
+      if (box.width > 0) {
+        const pad = 60;
+        const scale = Math.min((W - pad) / box.width, (H - pad) / box.height, 1.5) * 0.85;
+        const tx = (W - scale * (box.x * 2 + box.width)) / 2;
+        const ty = (H - scale * (box.y * 2 + box.height)) / 2;
+        svg.call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+      }
+    } catch (_) {}
+  }, 1800);
+}
+
+// --- Node selection & panel ---
+
+async function selectNode(nodeId) {
+  g.selectedId = nodeId;
+
+  // Highlight selected node
+  g.nodeSel.select("circle")
+    .attr("stroke", d => d.id === nodeId ? "#6366f1" : "#0f172a")
+    .attr("stroke-width", d => d.id === nodeId ? 3 : 2);
+
+  // Fetch full details
+  try {
+    const detail = await api("GET", `/concepts/${nodeId}`);
+    openPanel(detail);
+  } catch (e) { console.warn("Could not fetch concept:", e); }
+}
+
+function openPanel(detail) {
+  document.getElementById("panel-title-text").textContent = detail.title;
+  document.getElementById("panel-weight-badge").textContent = `weight ${detail.weight.toFixed(2)}`;
+  document.getElementById("panel-title-input").value = detail.title;
+  document.getElementById("panel-summary").value = detail.summary;
+
+  // Edges
+  const edgeList = document.getElementById("panel-edges");
+  edgeList.innerHTML = "";
+  const allNodes = g.nodes;
+  const nodeTitle = id => {
+    const n = allNodes.find(n => n.id === id);
+    return n ? n.title : id.slice(0, 8);
+  };
+  detail.edges.forEach(e => {
+    const isOut = e.from === detail.id;
+    const otherId = isOut ? e.to : e.from;
+    const li = document.createElement("li");
+    li.className = "edge-item";
+    li.innerHTML = `
+      <span class="edge-dir">${isOut ? "→" : "←"}</span>
+      <span class="edge-target" title="${nodeTitle(otherId)}">${nodeTitle(otherId)}</span>
+      <span class="edge-rel">${e.relation}</span>
+      <button class="btn-edge-del" onclick="deleteEdge('${e.from}','${e.to}')" title="Delete edge">×</button>
+    `;
+    edgeList.appendChild(li);
+  });
+  if (detail.edges.length === 0) {
+    edgeList.innerHTML = '<li style="color:var(--muted);font-size:13px;padding:6px 0">No connections yet</li>';
+  }
+
+  // Highlights
+  const hlDiv = document.getElementById("panel-highlights");
+  hlDiv.innerHTML = "";
+  (detail.highlights || []).forEach(h => {
+    const p = document.createElement("p");
+    p.className = `panel-hl ${h.color}`;
+    p.textContent = h.text;
+    hlDiv.appendChild(p);
+  });
+  if ((detail.highlights || []).length === 0) {
+    hlDiv.innerHTML = '<p style="color:var(--muted);font-size:13px">No highlights</p>';
+  }
+
+  document.getElementById("node-panel").classList.add("open");
+  // Store current concept id for save/delete
+  document.getElementById("node-panel").dataset.conceptId = detail.id;
+}
+
+function closePanel() {
+  document.getElementById("node-panel").classList.remove("open");
+  g.nodeSel?.select("circle")
+    .attr("stroke", "#0f172a")
+    .attr("stroke-width", 2);
+  g.selectedId = null;
+}
+
+async function saveConceptEdit() {
+  const conceptId = document.getElementById("node-panel").dataset.conceptId;
+  const title = document.getElementById("panel-title-input").value.trim();
+  const summary = document.getElementById("panel-summary").value.trim();
+  if (!conceptId || !title) return;
+  try {
+    await api("PATCH", `/concepts/${conceptId}`, { title, summary });
+    // Update node label in graph
+    const node = g.nodes.find(n => n.id === conceptId);
+    if (node) {
+      node.title = title;
+      g.nodeSel.filter(d => d.id === conceptId).select("text")
+        .text(title.length > 20 ? title.slice(0, 18) + "…" : title);
+    }
+    document.getElementById("panel-title-text").textContent = title;
+    document.getElementById("panel-weight-badge").textContent =
+      document.getElementById("panel-weight-badge").textContent; // keep as is
+  } catch (e) { alert("Save failed: " + e.message); }
+}
+
+async function deleteEdge(fromId, toId) {
+  try {
+    await api("DELETE", `/graph/edges/${fromId}/${toId}`);
+    // Refresh panel
+    const conceptId = document.getElementById("node-panel").dataset.conceptId;
+    const detail = await api("GET", `/concepts/${conceptId}`);
+    openPanel(detail);
+    // Remove link from simulation
+    g.links = g.links.filter(l => !(l.source.id === fromId && l.target.id === toId));
+    g.linkSel = g.linkSel.filter(d => !(
+      (d.source.id || d.source) === fromId && (d.target.id || d.target) === toId
+    ));
+    await loadGraph(); // Full reload to sync visual state
+  } catch (e) { alert("Delete failed: " + e.message); }
+}
+
+// --- Add edge ---
+
+function toggleAddEdge() {
+  g.addEdgeMode = !g.addEdgeMode;
+  const btn = document.getElementById("add-edge-btn");
+  const bar = document.getElementById("add-edge-bar");
+  if (g.addEdgeMode) {
+    btn.classList.add("btn-active");
+    bar.classList.add("show");
+    g.edgeSourceId = null;
+    document.getElementById("add-edge-status").textContent = "Click source node";
+    closePanel();
+  } else {
+    cancelAddEdge();
+  }
+}
+
+function cancelAddEdge() {
+  g.addEdgeMode = false;
+  g.edgeSourceId = null;
+  document.getElementById("add-edge-btn").classList.remove("btn-active");
+  document.getElementById("add-edge-bar").classList.remove("show");
+  // Clear any source highlight
+  g.nodeSel?.select("circle").attr("stroke", "#0f172a").attr("stroke-width", 2);
+}
+
+async function handleAddEdgeClick(nodeId) {
+  if (!g.edgeSourceId) {
+    g.edgeSourceId = nodeId;
+    document.getElementById("add-edge-status").textContent = "Now click target node";
+    // Highlight source
+    g.nodeSel.select("circle")
+      .attr("stroke", d => d.id === nodeId ? "#6366f1" : "#0f172a")
+      .attr("stroke-width", d => d.id === nodeId ? 3 : 2);
+    return;
+  }
+  if (nodeId === g.edgeSourceId) {
+    // Clicked same node — reset source
+    g.edgeSourceId = null;
+    document.getElementById("add-edge-status").textContent = "Click source node";
+    g.nodeSel.select("circle").attr("stroke", "#0f172a").attr("stroke-width", 2);
+    return;
+  }
+
+  const relation = document.getElementById("relation-select").value;
+  try {
+    await api("POST", "/graph/edges", {
+      from_concept_id: g.edgeSourceId,
+      to_concept_id: nodeId,
+      relation,
+    });
+    cancelAddEdge();
+    await loadGraph();
+  } catch (e) { alert("Create edge failed: " + e.message); }
+}
+
+// --- Synthesize ---
+async function doSynthesize() {
+  const bookId = document.getElementById("graph-book-select").value;
+  if (!bookId) { alert("Select a book first."); return; }
+  try {
+    const r = await api("POST", "/synthesize", { book_id: bookId });
+    await loadGraph();
+    alert(`Done: ${r.concepts} concepts, ${r.edges} edges`);
+  } catch (e) { alert("Synthesize failed: " + e.message); }
+}
+
+// ═══════════════════════ ENGLISH ═══════════════════════
+
+async function openEnglish() {
+  show("english");
+  await loadEntries();
+}
+
+async function loadEntries() {
+  try {
+    const [entries, due] = await Promise.all([
+      api("GET", "/entries"),
+      api("GET", "/entries/next").catch(() => null),
+    ]);
+    renderEntryList(entries);
+    updateEnglishBadges(due ? 1 : 0);
+  } catch (e) { console.warn("Entries unavailable:", e.message); }
+}
+
+function updateEnglishBadges(dueCount) {
+  for (const id of ["english-due-badge", "english-review-badge"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.style.display = dueCount > 0 ? "inline-flex" : "none";
+    el.textContent = dueCount;
+  }
+}
+
+function renderEntryList(entries) {
+  const list = document.getElementById("entry-list");
+  if (!entries.length) {
+    list.innerHTML = '<p class="empty">No entries yet. Add your first phrase above.</p>';
+    return;
+  }
+  list.innerHTML = entries.map(e => entryCardHTML(e)).join("");
+}
+
+function parseContextNote(note) {
+  if (!note) return null;
+  const parts = note.split('|').map(s => s.trim());
+  const r = { wordClass: '', domain: '', whenToUse: '', pattern: '' };
+  if (parts.length) r.wordClass = parts[0];
+  for (let i = 1; i < parts.length; i++) {
+    const p = parts[i];
+    const lp = p.toLowerCase();
+    if (lp.startsWith('context:') || lp.startsWith('domain:') || lp.startsWith('register:'))
+      r.domain = p.slice(p.indexOf(':') + 1).trim();
+    else if (lp.startsWith('when to use:'))
+      r.whenToUse = p.slice(12).trim();
+    else if (lp.startsWith('pattern:'))
+      r.pattern = p.slice(8).trim();
+  }
+  return r;
+}
+
+function usageBoxHTML(note) {
+  const u = parseContextNote(note);
+  if (!u) return "";
+  const rows = [
+    u.domain    ? `<div class="usage-row"><span class="usage-label">Context</span><span class="usage-value">${escHtml(u.domain)}</span></div>` : "",
+    u.whenToUse ? `<div class="usage-row"><span class="usage-label">When to use</span><span class="usage-value">${escHtml(u.whenToUse)}</span></div>` : "",
+    u.pattern   ? `<div class="usage-row"><span class="usage-label">Pattern</span><span class="usage-value"><span class="usage-pattern">${escHtml(u.pattern)}</span></span></div>` : "",
+  ].join("");
+  return `<div class="usage-box">${u.wordClass ? `<div class="usage-word-class">${escHtml(u.wordClass)}</div>` : ""}${rows}</div>`;
+}
+
+function entryCardHTML(e) {
+  const phonetics = e.phonetics
+    ? `<div class="entry-phonetics">${e.phonetics}</div>`
+    : "";
+  const enrichBtn = !e.phonetics
+    ? `<button class="btn-enrich" onclick="enrichEntry('${e.id}')" title="AI enrich">✦ Enrich</button>`
+    : "";
+  const usage = e.context_note ? usageBoxHTML(e.context_note) : "";
+  return `
+    <div class="entry-card" id="ecard-${e.id}">
+      <div class="entry-text">${escHtml(e.text)}</div>
+      ${phonetics}
+      ${usage}
+      <div class="entry-meta">
+        <span class="entry-source ${e.source_type}">${e.source_type}</span>
+        ${e.source_ref ? `<span style="font-size:12px;color:var(--muted)">from ${escHtml(e.source_ref)}</span>` : ""}
+        <button class="btn-tts" onclick="speakText('${escAttr(e.text)}')" title="Play pronunciation">🔊</button>
+        ${enrichBtn}
+      </div>
+    </div>`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function escAttr(s) {
+  return s.replace(/'/g, "\\'");
+}
+
+async function submitEntry() {
+  const input = document.getElementById("entry-input");
+  const note = document.getElementById("entry-note");
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    const body = { text };
+    if (note.value.trim()) body.source_ref = note.value.trim();
+    await api("POST", "/entries", body);
+    input.value = "";
+    note.value = "";
+    input.focus();
+    await loadEntries();
+  } catch (e) { alert("Error adding entry: " + e.message); }
+}
+
+function speakText(text) {
+  if (!("speechSynthesis" in window)) { alert("TTS not supported in this browser."); return; }
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = "en-US";
+  utt.rate = 0.88;
+  utt.pitch = 1.0;
+
+  const voices = _voices.length ? _voices : window.speechSynthesis.getVoices();
+  // Priority: Google US English > Samantha > any en-US
+  const preferred = [
+    v => v.name === "Google US English",
+    v => v.name === "Samantha",
+    v => v.name.includes("US") && v.lang === "en-US",
+    v => v.lang === "en-US",
+    v => v.lang.startsWith("en"),
+  ];
+  for (const match of preferred) {
+    const found = voices.find(match);
+    if (found) { utt.voice = found; break; }
+  }
+
+  window.speechSynthesis.speak(utt);
+}
+
+async function enrichEntry(entryId) {
+  try {
+    const btn = document.querySelector(`#ecard-${entryId} .btn-enrich`);
+    if (btn) { btn.textContent = "…"; btn.disabled = true; }
+    const entry = await api("POST", `/entries/${entryId}/enrich`);
+    // Replace card with updated version
+    const card = document.getElementById(`ecard-${entryId}`);
+    if (card) card.outerHTML = entryCardHTML(entry);
+  } catch (e) {
+    alert("Enrich failed: " + e.message);
+    await loadEntries();
+  }
+}
+
+async function toggleEntryRecording() {
+  if (state.entryRecording) { state.entryMediaRecorder?.stop(); return; }
+  const btn = document.getElementById("entry-record-btn");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = getBestMimeType();
+    state.entryAudioChunks = [];
+    state.entryMediaRecorder = new MediaRecorder(stream, { mimeType });
+    state.entryMediaRecorder.ondataavailable = e => { if (e.data.size > 0) state.entryAudioChunks.push(e.data); };
+    state.entryMediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      state.entryRecording = false;
+      btn.classList.remove("recording");
+      btn.textContent = "🎙";
+
+      const resultEl = document.getElementById("entry-pronunciation-result");
+      if (!resultEl) return;
+      resultEl.style.display = "block";
+
+      const blob = new Blob(state.entryAudioChunks, { type: mimeType });
+      if (blob.size === 0) {
+        resultEl.innerHTML = `<span style="color:var(--red);font-size:13px">No audio captured — please hold 🎙 for at least 1 second.</span>`;
+        return;
+      }
+
+      resultEl.innerHTML = `<span style="color:var(--muted);font-size:13px">Transcribing…</span>`;
+      const form = new FormData();
+      form.append("audio", blob, `rec.${mimeType.split("/")[1].split(";")[0]}`);
+      try {
+        const r = await api("POST", `/entries/${state.currentEntry.id}/answer/voice`, form);
+        const icon = r.match ? "✓" : "~";
+        const color = r.match ? "var(--green)" : "var(--yellow)";
+        const label = r.match ? "Sounds good" : "Check again";
+        resultEl.innerHTML = `
+          <div style="background:${r.match ? '#22c55e10' : '#eab30810'};border:1px solid ${color};border-radius:8px;padding:10px 12px">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">I heard</div>
+            <div style="font-size:15px;color:var(--text);margin-bottom:6px">"${escHtml(r.heard)}"</div>
+            <div style="font-size:13px;font-weight:600;color:${color}">${icon} ${label} (${Math.round(r.score * 100)}%)</div>
+          </div>`;
+      } catch (e) {
+        resultEl.innerHTML = `<span style="color:var(--red);font-size:13px">Error: ${e.message}</span>`;
+      }
+    };
+    state.entryMediaRecorder.start(250);
+    state.entryRecording = true;
+    btn.classList.add("recording");
+    btn.textContent = "⏹";
+  } catch (e) { alert("Microphone access denied."); }
+}
+
+async function importImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = "";
+  const list = document.getElementById("entry-list");
+  const notice = document.createElement("div");
+  notice.className = "card";
+  notice.style.cssText = "text-align:center;color:var(--muted);padding:16px";
+  notice.textContent = "OCR in progress…";
+  list.prepend(notice);
+  try {
+    const form = new FormData();
+    form.append("image", file);
+    const entries = await api("POST", "/import/image", form);
+    notice.remove();
+    if (!entries.length) { alert("No text found in image."); return; }
+    alert(`Imported ${entries.length} entr${entries.length === 1 ? "y" : "ies"} from photo.`);
+    await loadEntries();
+  } catch (e) {
+    notice.remove();
+    alert("OCR failed: " + e.message);
+  }
+}
+
+async function importFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = "";
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const r = await api("POST", "/import/file", form);
+    alert(`Imported ${r.highlights} highlight${r.highlights === 1 ? "" : "s"} from "${file.name}".\nbook_id: ${r.book_id}\n\nNow run Synthesize to build concepts.`);
+  } catch (e) { alert("Import failed: " + e.message); }
+}
+
+async function startEntryReview() {
+  try {
+    const entry = await api("GET", "/entries/next");
+    state.currentEntry = entry;
+    showEntryReviewCard(entry);
+  } catch (e) {
+    if (e.message.startsWith("404")) alert("All entries reviewed! Come back later.");
+    else alert("Error: " + e.message);
+  }
+}
+
+function showEntryReviewCard(entry) {
+  const list = document.getElementById("entry-list");
+
+  const usage = entry.context_note ? usageBoxHTML(entry.context_note) : "";
+  const examples = entry.examples && entry.examples.length
+    ? `<div style="margin-bottom:var(--gap)">
+        <div class="section-title" style="margin-bottom:6px">Examples</div>
+        <div class="entry-examples">
+          ${entry.examples.map(ex => `<div class="entry-example">${escHtml(ex)}</div>`).join("")}
+        </div>
+       </div>`
+    : "";
+
+  list.innerHTML = `
+    <div class="card" id="entry-review-card">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Review</div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:${entry.phonetics ? '4px' : '14px'}">
+        <div class="entry-text" style="font-size:24px;font-weight:700;flex:1">${escHtml(entry.text)}</div>
+        <button class="btn-tts" style="padding:8px 14px;font-size:18px;flex-shrink:0" onclick="speakText('${escAttr(entry.text)}')">🔊</button>
+        <button class="btn btn-record" id="entry-record-btn" style="width:auto;padding:8px 14px;font-size:14px;flex-shrink:0" onclick="toggleEntryRecording()">🎙</button>
+      </div>
+      ${entry.phonetics ? `<div class="entry-phonetics" style="font-size:15px;margin-bottom:14px">${entry.phonetics}</div>` : ""}
+      <div id="entry-pronunciation-result" style="display:none;margin-bottom:14px"></div>
+
+      ${usage}
+      ${examples}
+
+      <div>
+        <div class="section-title">Did you remember it?</div>
+        <div class="mastery-btns" style="margin-top:8px">
+          ${[1,2,3,4,5].map(n => `<button class="mastery-btn" onclick="rateEntry(${n})">${n}</button>`).join("")}
+        </div>
+        <p class="muted" style="text-align:center;margin-top:6px;font-size:12px">1 = didn't know · 5 = perfect recall</p>
+      </div>
+    </div>`;
+}
+
+async function rateEntry(score) {
+  try {
+    await api("POST", `/entries/${state.currentEntry.id}/review`, { mastery_score: score });
+  } catch (_) {}
+  try {
+    const next = await api("GET", "/entries/next");
+    state.currentEntry = next;
+    showEntryReviewCard(next);
+  } catch (_) {
+    state.currentEntry = null;
+    await loadEntries();
+    document.getElementById("entry-list").insertAdjacentHTML(
+      "afterbegin",
+      '<div class="card" style="text-align:center;color:var(--green);padding:20px">✓ All caught up!</div>'
+    );
   }
 }
 
@@ -620,7 +1384,15 @@ if ("serviceWorker" in navigator) {
 }
 
 // ═══════════════════════ BOOT ═══════════════════════
+// Cache voices so speakText can find them immediately on first call
+let _voices = [];
+if ("speechSynthesis" in window) {
+  const loadVoices = () => { _voices = window.speechSynthesis.getVoices(); };
+  loadVoices();
+  window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+}
 loadStats();
+api("GET", "/entries/next").then(e => updateEnglishBadges(e ? 1 : 0)).catch(() => {});
 </script>
 </body>
 </html>

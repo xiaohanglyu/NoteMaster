@@ -19,6 +19,7 @@ def make_highlight(id: str, color: HighlightColor, text: str = "some text") -> H
         id=id,
         text=text,
         color=color,
+        book_id="book-1",
         book_title="DDIA",
     )
 

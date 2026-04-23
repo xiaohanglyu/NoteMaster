@@ -20,7 +20,12 @@ def find_annotation_db() -> Optional[Path]:
     return matches[0] if matches else None
 
 
-def get_highlights(asset_id: str, db_path: Optional[Path] = None) -> list[Highlight]:
+def get_highlights(
+    asset_id: str,
+    book_id: str,
+    book_title: str,
+    db_path: Optional[Path] = None,
+) -> list[Highlight]:
     if db_path is None:
         db_path = find_annotation_db()
     if db_path is None:
@@ -45,6 +50,6 @@ def get_highlights(asset_id: str, db_path: Optional[Path] = None) -> list[Highli
         if color is None:
             continue
         highlights.append(
-            Highlight(id=uuid, text=text, color=color, book_title=asset_id)
+            Highlight(id=uuid, text=text, color=color, book_id=book_id, book_title=book_title)
         )
     return highlights

@@ -1,21 +1,44 @@
-import json
 import pytest
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from notemaster.models import (
-    Highlight, HighlightColor, EvaluationResult, StudySession
+    Book, Concept, ConceptWithPriority, EvaluationResult, StudySession,
 )
 from datetime import date
 
 
 # --- Helpers ---
 
-def make_highlight(id="uuid-1"):
-    return Highlight(
+def make_concept(id="concept-1"):
+    now = datetime(2026, 4, 22)
+    return Concept(
         id=id,
-        text="A fault is one component deviating from its spec",
-        color=HighlightColor.GREEN,
-        book_title="DDIA",
+        title="Fault vs Failure",
+        summary="A fault is a component deviation; a failure is service unavailability.",
+        book_id="book-1",
+        highlight_ids=["h-1"],
+        weight=1.5,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def make_concept_with_priority(id="concept-1"):
+    return ConceptWithPriority(
+        concept=make_concept(id),
+        priority=1.5,
+        days_overdue=0.0,
+        last_mastery=None,
+    )
+
+
+def make_book():
+    return Book(
+        id="book-1",
+        title="DDIA",
+        asset_id="asset-ddia",
+        synced_at=datetime(2026, 4, 22),
     )
 
 
@@ -30,14 +53,15 @@ def make_eval_result():
     )
 
 
-def make_db(highlights=None, streak=3, heatmap=None):
+def make_db():
     db = MagicMock()
-    db.get_highlights.return_value = highlights or [make_highlight()]
-    db.get_due_highlights.return_value = highlights or [make_highlight()]
-    db.get_streak.return_value = streak
-    db.get_heatmap.return_value = heatmap or {"2026-04-22": 1}
+    db.get_book_by_asset_id.return_value = make_book()
+    db.get_books.return_value = [make_book()]
+    db.get_due_concepts.return_value = [make_concept_with_priority()]
+    db.get_concept.return_value = make_concept()
+    db.get_streak.return_value = 3
+    db.get_heatmap.return_value = {"2026-04-22": 1}
     db.get_study_sessions.return_value = []
-    db.get_review_record.return_value = None
     return db
 
 
@@ -50,20 +74,39 @@ def client():
     app.dependency_overrides.clear()
 
 
+# --- GET /books ---
+
+class TestGetBooks:
+    def test_returns_list(self, client):
+        tc, _ = client
+        resp = tc.get("/books")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    def test_book_has_expected_fields(self, client):
+        tc, _ = client
+        data = tc.get("/books").json()
+        assert "id" in data[0]
+        assert "title" in data[0]
+
+
 # --- POST /sync ---
 
 class TestSync:
-    def test_returns_synced_count(self, client):
+    def test_returns_synced_count_and_book_id(self, client):
         tc, mock_db = client
-        with patch("notemaster.main.books.get_highlights", return_value=[make_highlight(), make_highlight()]):
+        with patch("notemaster.main.books.get_highlights", return_value=[]):
             resp = tc.post("/sync", json={"asset_id": "asset-ddia", "book_title": "DDIA"})
         assert resp.status_code == 200
-        assert resp.json()["synced"] == 2
+        assert "synced" in resp.json()
+        assert "book_id" in resp.json()
 
     def test_saves_each_highlight(self, client):
         tc, mock_db = client
-        highlights = [make_highlight("a"), make_highlight("b")]
-        with patch("notemaster.main.books.get_highlights", return_value=highlights):
+        from notemaster.models import Highlight, HighlightColor
+        hl = Highlight(id="h-1", text="text", color=HighlightColor.GREEN,
+                       book_id="book-1", book_title="DDIA")
+        with patch("notemaster.main.books.get_highlights", return_value=[hl, hl]):
             tc.post("/sync", json={"asset_id": "asset-ddia", "book_title": "DDIA"})
         assert mock_db.save_highlight.call_count == 2
 
@@ -76,35 +119,30 @@ class TestSync:
 # --- GET /session/next ---
 
 class TestSessionNext:
-    def test_returns_highlight(self, client):
+    def test_returns_concept(self, client):
         tc, _ = client
         resp = tc.get("/session/next")
         assert resp.status_code == 200
         data = resp.json()
         assert "id" in data
-        assert "text" in data
+        assert "title" in data
+        assert "summary" in data
 
     def test_returns_404_when_nothing_due(self, client):
         tc, mock_db = client
-        mock_db.get_due_highlights.return_value = []
-        mock_db.get_highlights.return_value = []
+        mock_db.get_due_concepts.return_value = []
         resp = tc.get("/session/next")
         assert resp.status_code == 404
-
-    def test_focus_area_query_param(self, client):
-        tc, _ = client
-        resp = tc.get("/session/next?focus_area=concept")
-        assert resp.status_code == 200
 
 
 # --- POST /answer/text ---
 
 class TestAnswerText:
     def test_returns_evaluation_result(self, client):
-        tc, mock_db = client
+        tc, _ = client
         with patch("notemaster.main.ai.evaluate", return_value=make_eval_result()):
             resp = tc.post("/answer/text", json={
-                "highlight_id": "uuid-1",
+                "concept_id": "concept-1",
                 "answer": "A fault is when one part breaks its contract",
             })
         assert resp.status_code == 200
@@ -112,18 +150,23 @@ class TestAnswerText:
         assert "concept_score" in data
         assert "english_score" in data
 
-    def test_saves_review_record(self, client):
+    def test_does_not_auto_record_review(self, client):
+        # review is recorded explicitly via POST /concepts/{id}/review (mastery button)
         tc, mock_db = client
         with patch("notemaster.main.ai.evaluate", return_value=make_eval_result()):
-            tc.post("/answer/text", json={
-                "highlight_id": "uuid-1",
-                "answer": "some answer",
-            })
-        mock_db.save_review_record.assert_called_once()
+            tc.post("/answer/text", json={"concept_id": "concept-1", "answer": "answer"})
+        mock_db.record_review.assert_not_called()
+
+    def test_returns_404_for_unknown_concept(self, client):
+        tc, mock_db = client
+        mock_db.get_concept.return_value = None
+        with patch("notemaster.main.ai.evaluate", return_value=make_eval_result()):
+            resp = tc.post("/answer/text", json={"concept_id": "bad-id", "answer": "answer"})
+        assert resp.status_code == 404
 
     def test_missing_answer_returns_422(self, client):
         tc, _ = client
-        resp = tc.post("/answer/text", json={"highlight_id": "uuid-1"})
+        resp = tc.post("/answer/text", json={"concept_id": "concept-1"})
         assert resp.status_code == 422
 
 
@@ -131,19 +174,46 @@ class TestAnswerText:
 
 class TestAnswerVoice:
     def test_transcribes_and_evaluates(self, client):
-        tc, mock_db = client
+        tc, _ = client
         with patch("notemaster.main.stt.transcribe", return_value="transcribed answer"), \
              patch("notemaster.main.ai.evaluate", return_value=make_eval_result()):
-            resp = tc.post("/answer/voice", data={"highlight_id": "uuid-1"},
-                           files={"audio": ("test.webm", b"\x00\x01\x02", "audio/webm")})
+            resp = tc.post(
+                "/answer/voice",
+                data={"concept_id": "concept-1"},
+                files={"audio": ("test.webm", b"\x00\x01\x02", "audio/webm")},
+            )
         assert resp.status_code == 200
         assert "concept_score" in resp.json()
+
+
+# --- GET /graph ---
+
+class TestGraph:
+    def test_returns_nodes_and_edges(self, client):
+        tc, mock_db = client
+        mock_db.get_concepts.return_value = [make_concept()]
+        mock_db.get_edges.return_value = []
+        resp = tc.get("/graph")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "nodes" in data
+        assert "edges" in data
+
+    def test_node_has_expected_fields(self, client):
+        tc, mock_db = client
+        mock_db.get_concepts.return_value = [make_concept()]
+        mock_db.get_edges.return_value = []
+        data = tc.get("/graph").json()
+        node = data["nodes"][0]
+        assert "id" in node
+        assert "title" in node
+        assert "weight" in node
 
 
 # --- GET /stats ---
 
 class TestStats:
-    def test_returns_streak_and_heatmap(self, client):
+    def test_returns_streak_heatmap_sessions(self, client):
         tc, _ = client
         resp = tc.get("/stats")
         assert resp.status_code == 200
