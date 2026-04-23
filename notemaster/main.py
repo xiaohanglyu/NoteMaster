@@ -13,6 +13,8 @@ from notemaster.models import (
     Book, Concept, ConceptEdge, RelationType, ConceptWithPriority,
     EvaluationResult, StudySession, Score,
     Entry, EntryType, PronunciationResult,
+    Application, ApplicationStatus, ApplicationRound,
+    InterviewQuestion, QuestionType, QuestionSource, QuestionReviewRecord,
 )
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
@@ -196,16 +198,70 @@ def record_review(concept_id: str, req: RecordReviewRequest, db: Database = Depe
 
 # --- Session ---
 
-@app.get("/session/next", response_model=Concept)
-def session_next(db: Database = Depends(get_db)):
+def _build_unified_queue(db: Database, limit: int = 20) -> list[dict]:
+    from datetime import datetime as dt
+
+    items: list[dict] = []
+
+    for cwp in db.get_due_concepts(limit=limit):
+        items.append({
+            "note_type": "concept",
+            "priority": cwp.priority,
+            "days_overdue": cwp.days_overdue,
+            "item": {
+                "id": cwp.concept.id,
+                "title": cwp.concept.title,
+                "summary": cwp.concept.summary,
+                "weight": cwp.concept.weight,
+            },
+        })
+
+    for ewp in db.get_due_entries(limit=limit):
+        items.append({
+            "note_type": "entry",
+            "priority": ewp.priority,
+            "days_overdue": ewp.days_overdue,
+            "item": {
+                "id": ewp.entry.id,
+                "text": ewp.entry.text,
+                "weight": ewp.entry.weight,
+            },
+        })
+
+    for q in db.get_questions(due_only=True):
+        now = dt.now()
+        next_rev = q.next_review_at or now
+        days_overdue = max(0.0, (now - next_rev).total_seconds() / 86400)
+        priority = 1.0 * (1 + days_overdue)
+        items.append({
+            "note_type": "question",
+            "priority": priority,
+            "days_overdue": days_overdue,
+            "item": _question_to_dict(q),
+        })
+
+    items.sort(key=lambda x: x["priority"], reverse=True)
+    return items[:limit]
+
+
+@app.get("/session/next")
+def session_next(include_questions: bool = False, db: Database = Depends(get_db)):
+    if include_questions:
+        items = _build_unified_queue(db, limit=1)
+        if not items:
+            raise HTTPException(status_code=404, detail="Nothing due for review")
+        return items[0]
+
     items = db.get_due_concepts(limit=1)
     if not items:
         raise HTTPException(status_code=404, detail="No concepts due for review")
     return items[0].concept
 
 
-@app.get("/session/queue", response_model=list[ConceptWithPriority])
-def session_queue(limit: int = 20, db: Database = Depends(get_db)):
+@app.get("/session/queue")
+def session_queue(limit: int = 20, include_questions: bool = False, db: Database = Depends(get_db)):
+    if include_questions:
+        return _build_unified_queue(db, limit=limit)
     return db.get_due_concepts(limit=limit)
 
 
@@ -412,6 +468,306 @@ def record_entry_review(entry_id: str, req: RecordEntryReviewRequest, db: Databa
         }
     except ValueError:
         raise HTTPException(status_code=404, detail="Entry not found")
+
+
+# --- Applications ---
+
+class CreateApplicationRequest(BaseModel):
+    company: str
+    role: str
+    status: ApplicationStatus = ApplicationStatus.APPLIED
+    location: Optional[str] = None
+    work_model: Optional[str] = None
+    salary_range: Optional[str] = None
+    job_link: Optional[str] = None
+    resume_version: Optional[str] = None
+    notes: Optional[str] = None
+    applied_at: Optional[str] = None
+
+
+class UpdateApplicationRequest(BaseModel):
+    status: Optional[ApplicationStatus] = None
+    location: Optional[str] = None
+    work_model: Optional[str] = None
+    salary_range: Optional[str] = None
+    job_link: Optional[str] = None
+    resume_version: Optional[str] = None
+    notes: Optional[str] = None
+    applied_at: Optional[str] = None
+
+
+class AddRoundRequest(BaseModel):
+    name: str
+    date: Optional[str] = None
+    feedback: Optional[str] = None
+
+
+class UpdateRoundRequest(BaseModel):
+    name: Optional[str] = None
+    date: Optional[str] = None
+    feedback: Optional[str] = None
+
+
+class ApplicationWithRounds(BaseModel):
+    id: str
+    company: str
+    role: str
+    status: ApplicationStatus
+    location: Optional[str] = None
+    work_model: Optional[str] = None
+    salary_range: Optional[str] = None
+    job_link: Optional[str] = None
+    resume_version: Optional[str] = None
+    notes: Optional[str] = None
+    applied_at: Optional[str] = None
+    created_at: str
+    rounds: list[ApplicationRound] = []
+
+
+def _app_to_dict(app: Application) -> dict:
+    return {
+        "id": app.id,
+        "company": app.company,
+        "role": app.role,
+        "status": app.status.value,
+        "location": app.location,
+        "work_model": app.work_model,
+        "salary_range": app.salary_range,
+        "job_link": app.job_link,
+        "resume_version": app.resume_version,
+        "notes": app.notes,
+        "applied_at": app.applied_at.isoformat() if app.applied_at else None,
+        "created_at": app.created_at.isoformat(),
+    }
+
+
+@app.get("/applications")
+def list_applications(status: Optional[ApplicationStatus] = None, db: Database = Depends(get_db)):
+    apps = db.get_applications(status=status)
+    return [_app_to_dict(a) for a in apps]
+
+
+@app.post("/applications", status_code=201)
+def create_application(req: CreateApplicationRequest, db: Database = Depends(get_db)):
+    from datetime import date as date_type
+    app_obj = Application(
+        id=str(uuid.uuid4()),
+        company=req.company,
+        role=req.role,
+        status=req.status,
+        location=req.location,
+        work_model=req.work_model,
+        salary_range=req.salary_range,
+        job_link=req.job_link,
+        resume_version=req.resume_version,
+        notes=req.notes,
+        applied_at=date_type.fromisoformat(req.applied_at) if req.applied_at else None,
+        created_at=datetime.now(),
+    )
+    db.create_application(app_obj)
+    return _app_to_dict(app_obj)
+
+
+@app.get("/applications/{app_id}")
+def get_application(app_id: str, db: Database = Depends(get_db)):
+    app_obj = db.get_application(app_id)
+    if app_obj is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    rounds = db.get_application_rounds(app_id)
+    result = _app_to_dict(app_obj)
+    result["rounds"] = [
+        {"id": r.id, "name": r.name, "date": r.date, "feedback": r.feedback}
+        for r in rounds
+    ]
+    return result
+
+
+@app.patch("/applications/{app_id}")
+def update_application(app_id: str, req: UpdateApplicationRequest, db: Database = Depends(get_db)):
+    updates = req.model_dump(exclude_none=True)
+    updated = db.update_application(app_id, **updates)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return _app_to_dict(updated)
+
+
+@app.delete("/applications/{app_id}", status_code=204)
+def delete_application(app_id: str, db: Database = Depends(get_db)):
+    if db.get_application(app_id) is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    db.delete_application(app_id)
+
+
+@app.post("/applications/{app_id}/rounds", status_code=201)
+def add_round(app_id: str, req: AddRoundRequest, db: Database = Depends(get_db)):
+    if db.get_application(app_id) is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    r = db.add_application_round(app_id, name=req.name, date=req.date, feedback=req.feedback)
+    return {"id": r.id, "application_id": r.application_id, "name": r.name,
+            "date": r.date, "feedback": r.feedback}
+
+
+@app.patch("/applications/{app_id}/rounds/{round_id}")
+def update_round(app_id: str, round_id: int, req: UpdateRoundRequest, db: Database = Depends(get_db)):
+    updates = req.model_dump(exclude_none=True)
+    r = db.update_application_round(round_id, **updates)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Round not found")
+    return {"id": r.id, "application_id": r.application_id, "name": r.name,
+            "date": r.date, "feedback": r.feedback}
+
+
+# --- Questions ---
+
+class CreateQuestionRequest(BaseModel):
+    question: str
+    answer: Optional[str] = None
+    q_type: QuestionType = QuestionType.OTHER
+    source: QuestionSource = QuestionSource.MOCK
+    application_id: Optional[str] = None
+    round: Optional[str] = None
+    self_score: int = 0
+    tags: list[str] = []
+    notes: Optional[str] = None
+
+
+class UpdateQuestionRequest(BaseModel):
+    question: Optional[str] = None
+    answer: Optional[str] = None
+    q_type: Optional[QuestionType] = None
+    source: Optional[QuestionSource] = None
+    application_id: Optional[str] = None
+    round: Optional[str] = None
+    self_score: Optional[int] = None
+    tags: Optional[list[str]] = None
+    notes: Optional[str] = None
+
+
+class ReviewQuestionRequest(BaseModel):
+    grade: Annotated[int, Field(ge=1, le=3)]
+
+
+def _question_to_dict(q: InterviewQuestion) -> dict:
+    return {
+        "id": q.id,
+        "question": q.question,
+        "answer": q.answer,
+        "q_type": q.q_type.value,
+        "source": q.source.value,
+        "application_id": q.application_id,
+        "round": q.round,
+        "self_score": q.self_score,
+        "tags": q.tags,
+        "notes": q.notes,
+        "ef": q.ef,
+        "interval": q.interval,
+        "reps": q.reps,
+        "next_review_at": q.next_review_at.isoformat() if q.next_review_at else None,
+        "created_at": q.created_at.isoformat(),
+    }
+
+
+@app.get("/questions")
+def list_questions(
+    q_type: Optional[QuestionType] = None,
+    source: Optional[QuestionSource] = None,
+    application_id: Optional[str] = None,
+    due_only: bool = False,
+    db: Database = Depends(get_db),
+):
+    questions = db.get_questions(
+        q_type=q_type, source=source, application_id=application_id, due_only=due_only
+    )
+    return [_question_to_dict(q) for q in questions]
+
+
+@app.get("/questions/next")
+def next_due_question(db: Database = Depends(get_db)):
+    q = db.get_next_due_question()
+    if q is None:
+        raise HTTPException(status_code=404, detail="No questions due for review")
+    return _question_to_dict(q)
+
+
+@app.post("/questions", status_code=201)
+def create_question(req: CreateQuestionRequest, db: Database = Depends(get_db)):
+    q = InterviewQuestion(
+        id=str(uuid.uuid4()),
+        question=req.question,
+        answer=req.answer,
+        q_type=req.q_type,
+        source=req.source,
+        application_id=req.application_id,
+        round=req.round,
+        self_score=req.self_score,
+        tags=req.tags,
+        notes=req.notes,
+        created_at=datetime.now(),
+    )
+    db.create_question(q)
+    return _question_to_dict(q)
+
+
+@app.post("/questions/import")
+def import_questions(questions: list[CreateQuestionRequest], db: Database = Depends(get_db)):
+    objs = [
+        InterviewQuestion(
+            id=str(uuid.uuid4()),
+            question=q.question,
+            answer=q.answer,
+            q_type=q.q_type,
+            source=q.source,
+            application_id=q.application_id,
+            round=q.round,
+            self_score=q.self_score,
+            tags=q.tags,
+            notes=q.notes,
+            created_at=datetime.now(),
+        )
+        for q in questions
+    ]
+    count = db.bulk_import_questions(objs)
+    return {"imported": count}
+
+
+@app.get("/questions/{question_id}")
+def get_question(question_id: str, db: Database = Depends(get_db)):
+    q = db.get_question(question_id)
+    if q is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return _question_to_dict(q)
+
+
+@app.patch("/questions/{question_id}")
+def update_question(question_id: str, req: UpdateQuestionRequest, db: Database = Depends(get_db)):
+    updates = req.model_dump(exclude_none=True)
+    q = db.update_question(question_id, **updates)
+    if q is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return _question_to_dict(q)
+
+
+@app.delete("/questions/{question_id}", status_code=204)
+def delete_question(question_id: str, db: Database = Depends(get_db)):
+    if db.get_question(question_id) is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    db.delete_question(question_id)
+
+
+@app.post("/questions/{question_id}/review")
+def review_question(question_id: str, req: ReviewQuestionRequest, db: Database = Depends(get_db)):
+    try:
+        record = db.record_question_review(question_id, grade=req.grade)
+        return {
+            "question_id": record.question_id,
+            "grade": record.grade,
+            "next_review_at": record.next_review_at.isoformat(),
+            "interval": record.interval,
+            "reps": record.reps,
+            "ef": round(record.ef, 4),
+        }
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Question not found")
 
 
 # --- Import: file ---

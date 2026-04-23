@@ -224,6 +224,49 @@
     .entry-example { font-size: 13px; color: var(--muted); line-height: 1.65; padding: 5px 0; border-bottom: 1px solid var(--border); }
     .entry-example:last-child { border-bottom: none; }
     .entry-example em { color: var(--text); font-style: normal; }
+
+    /* ═══ KANBAN BOARD ═══ */
+    #view-jobs { max-width: none !important; padding: var(--gap); }
+    .kanban-board { display: flex; gap: var(--gap); overflow-x: auto; padding-bottom: var(--gap); }
+    .kanban-board::-webkit-scrollbar { height: 6px; }
+    .kanban-board::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .kanban-col { flex: 0 0 240px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
+    .kanban-col-header { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+    .kanban-col-header .col-count { background: var(--border); border-radius: 99px; padding: 1px 7px; font-size: 11px; }
+    .kanban-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; transition: border-color .15s; }
+    .kanban-card:hover { border-color: var(--accent); }
+    .kanban-card .kc-company { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+    .kanban-card .kc-role { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .kanban-card .kc-meta { font-size: 11px; color: var(--muted); }
+    .kanban-col-offer .kanban-card { border-color: #22c55e40; }
+    .kanban-col-rejected .kanban-card { opacity: .6; }
+    .kanban-col-offer { border-color: #22c55e40; }
+
+    /* Job detail panel */
+    .job-detail-overlay { display: none; position: fixed; inset: 0; background: #00000088; z-index: 200; }
+    .job-detail-overlay.open { display: flex; align-items: flex-start; justify-content: flex-end; }
+    .job-detail-panel { background: var(--surface); width: min(480px, 100vw); height: 100dvh; overflow-y: auto; padding: var(--gap); border-left: 1px solid var(--border); }
+    .round-item { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .round-item:last-child { border-bottom: none; }
+    .status-select { width: auto; padding: 6px 10px; font-size: 13px; }
+
+    /* ═══ Q&A BANK ═══ */
+    .filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--gap); }
+    .filter-btn { padding: 6px 12px; border: 1px solid var(--border); border-radius: 99px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+    .filter-btn.active { background: #6366f120; border-color: var(--accent); color: var(--accent); }
+    .q-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .q-card .q-text { font-size: 15px; font-weight: 600; margin-bottom: 6px; cursor: pointer; }
+    .q-card .q-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+    .q-card .q-answer { font-size: 13px; color: var(--muted); line-height: 1.6; display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .q-card .q-answer.visible { display: block; }
+    .type-badge { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 500; background: #6366f120; color: var(--accent); }
+    .type-badge.coding { background: #f5940020; color: #f59400; }
+    .type-badge.system_design { background: #a855f720; color: #a855f7; }
+    .type-badge.behavioral { background: #22c55e20; color: var(--green); }
+    .score-dots { display: inline-flex; gap: 3px; cursor: pointer; }
+    .score-dot-sm { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+    .score-dot-sm.filled { background: var(--accent); }
+    .due-badge { background: var(--red); color: #fff; border-radius: 99px; padding: 1px 6px; font-size: 11px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -235,6 +278,12 @@
     <div class="row ml-auto" style="gap:8px;width:auto">
       <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;gap:6px" onclick="openEnglish()">
         English <span id="english-due-badge" class="due-badge" style="display:none"></span>
+      </button>
+      <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;gap:6px" onclick="openJobs()">
+        Jobs
+      </button>
+      <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;gap:6px" onclick="openQuestions()">
+        Questions <span id="questions-due-badge" class="due-badge" style="display:none"></span>
       </button>
       <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="openGraphView()">Graph</button>
       <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="document.getElementById('file-import-input').click()" title="Import .txt / .md / .pdf as concepts">Import</button>
@@ -420,6 +469,168 @@
 
   <!-- Entry list -->
   <div id="entry-list"></div>
+</div>
+
+<!-- ═══════════════════════ JOBS VIEW ═══════════════════════ -->
+<div id="view-jobs" class="view" style="flex-direction:column">
+  <div class="row" style="margin-bottom:var(--gap);flex-shrink:0">
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
+    <h2 style="margin:0 0 0 12px">Jobs</h2>
+    <button class="btn btn-primary" style="width:auto;padding:8px 14px;font-size:13px;margin-left:auto" onclick="openJobForm()">+ Add</button>
+  </div>
+  <div class="kanban-board" id="kanban-board"></div>
+</div>
+
+<!-- Job add/edit form modal -->
+<div id="job-form-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:300;padding:var(--gap);align-items:flex-start;justify-content:center;overflow-y:auto">
+  <div class="card" style="width:100%;max-width:440px;margin:40px auto">
+    <div class="row" style="margin-bottom:var(--gap)">
+      <h2 style="margin:0" id="job-form-title">Add Application</h2>
+      <button onclick="closeJobForm()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <input type="hidden" id="job-form-id">
+    <div class="section-title" style="margin-bottom:4px">Company *</div>
+    <input type="text" id="job-company" placeholder="e.g. Stripe" style="margin-bottom:var(--gap)">
+    <div class="section-title" style="margin-bottom:4px">Role *</div>
+    <input type="text" id="job-role" placeholder="e.g. Software Engineer" style="margin-bottom:var(--gap)">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:var(--gap)">
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Status</div>
+        <select id="job-status">
+          <option value="applied">Applied</option>
+          <option value="phone">Phone Screen</option>
+          <option value="technical">Technical</option>
+          <option value="onsite">Onsite</option>
+          <option value="offer">Offer</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Work Model</div>
+        <select id="job-work-model">
+          <option value="">—</option>
+          <option value="remote">Remote</option>
+          <option value="hybrid">Hybrid</option>
+          <option value="onsite">Onsite</option>
+        </select>
+      </div>
+    </div>
+    <div class="section-title" style="margin-bottom:4px">Location</div>
+    <input type="text" id="job-location" placeholder="e.g. San Francisco, CA" style="margin-bottom:var(--gap)">
+    <div class="section-title" style="margin-bottom:4px">Salary Range</div>
+    <input type="text" id="job-salary" placeholder="e.g. $150k–$180k" style="margin-bottom:var(--gap)">
+    <div class="section-title" style="margin-bottom:4px">Job Link</div>
+    <input type="text" id="job-link" placeholder="https://..." style="margin-bottom:var(--gap)">
+    <div class="section-title" style="margin-bottom:4px">Applied Date</div>
+    <input type="text" id="job-applied-at" placeholder="YYYY-MM-DD" style="margin-bottom:var(--gap)">
+    <div class="section-title" style="margin-bottom:4px">Notes</div>
+    <textarea id="job-notes" placeholder="Any notes…" style="margin-bottom:var(--gap);min-height:70px"></textarea>
+    <button class="btn btn-primary" onclick="saveJob()">Save</button>
+  </div>
+</div>
+
+<!-- Job detail panel -->
+<div id="job-detail-overlay" class="job-detail-overlay">
+  <div class="job-detail-panel">
+    <div class="row" style="margin-bottom:var(--gap)">
+      <h2 style="margin:0;font-size:16px" id="job-detail-company"></h2>
+      <button onclick="closeJobDetail()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div id="job-detail-role" style="color:var(--muted);font-size:14px;margin-bottom:var(--gap)"></div>
+    <div style="margin-bottom:var(--gap)">
+      <div class="section-title" style="margin-bottom:4px">Status</div>
+      <select class="status-select" id="job-detail-status" onchange="updateJobStatus(this)"></select>
+    </div>
+    <div id="job-detail-meta" style="font-size:13px;color:var(--muted);margin-bottom:var(--gap);line-height:1.8"></div>
+    <div style="display:flex;gap:8px;margin-bottom:var(--gap)">
+      <button class="btn btn-secondary" style="font-size:13px;padding:8px 12px" onclick="editCurrentJob()">Edit</button>
+      <button class="btn btn-danger" style="font-size:13px;padding:8px 12px" onclick="deleteCurrentJob()">Delete</button>
+    </div>
+    <div class="section-title" style="margin-bottom:8px">Interview Rounds</div>
+    <div id="job-detail-rounds"></div>
+    <div style="display:grid;grid-template-columns:1fr auto auto;gap:6px;margin-top:8px">
+      <input type="text" id="new-round-name" placeholder="Round name (e.g. Technical)" style="font-size:13px">
+      <input type="text" id="new-round-date" placeholder="Date" style="font-size:13px;width:100px">
+      <button class="btn btn-secondary" style="font-size:13px;padding:8px 12px;width:auto" onclick="addRound()">Add</button>
+    </div>
+    <div style="margin-top:var(--gap)">
+      <button class="btn btn-secondary" style="font-size:13px;padding:8px 12px" onclick="viewQuestionsForJob()">View linked questions →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ QUESTIONS VIEW ═══════════════════════ -->
+<div id="view-questions" class="view">
+  <div class="row" style="margin-bottom:12px">
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
+    <h2 style="margin:0 0 0 12px">Questions</h2>
+    <button class="btn btn-primary" style="width:auto;padding:8px 14px;font-size:13px;gap:6px;margin-left:auto" onclick="startQuestionReview()">
+      Study <span id="q-due-count" class="due-badge" style="display:none"></span>
+    </button>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar" id="q-filter-bar">
+    <button class="filter-btn active" data-filter="all" onclick="setQFilter(this,'type',null)">All</button>
+    <button class="filter-btn" data-filter="behavioral" onclick="setQFilter(this,'type','behavioral')">Behavioral</button>
+    <button class="filter-btn" data-filter="system_design" onclick="setQFilter(this,'type','system_design')">System Design</button>
+    <button class="filter-btn" data-filter="coding" onclick="setQFilter(this,'type','coding')">Coding</button>
+    <button class="filter-btn" data-filter="due" onclick="setQFilter(this,'due',true)" style="border-color:var(--red);color:var(--red)">Due</button>
+  </div>
+
+  <!-- Add question form (collapsible) -->
+  <div class="card" id="q-add-form" style="display:none">
+    <div class="section-title" style="margin-bottom:8px">Add Question</div>
+    <textarea id="q-question-input" placeholder="Question text…" style="min-height:70px;margin-bottom:10px"></textarea>
+    <textarea id="q-answer-input" placeholder="Answer notes… (optional)" style="min-height:60px;margin-bottom:10px"></textarea>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <select id="q-type-input">
+        <option value="behavioral">Behavioral</option>
+        <option value="system_design">System Design</option>
+        <option value="coding">Coding</option>
+        <option value="other">Other</option>
+      </select>
+      <select id="q-source-input">
+        <option value="mock">Mock</option>
+        <option value="real">Real</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="submitQuestion()">Add</button>
+      <button class="btn btn-secondary" onclick="toggleQAddForm()">Cancel</button>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:var(--gap)">
+    <button class="btn btn-secondary" style="font-size:13px;padding:8px 12px" onclick="toggleQAddForm()">+ Add question</button>
+  </div>
+
+  <div id="q-list"></div>
+</div>
+
+<!-- Question review card (reuses review view pattern) -->
+<div id="view-q-review" class="view">
+  <div class="row" style="margin-bottom:var(--gap)">
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="show('questions');loadQuestions()">← Back</button>
+    <span style="color:var(--muted);font-size:13px;margin-left:auto" id="q-review-progress"></span>
+  </div>
+  <div class="card" id="q-review-card">
+    <div class="section-title" style="margin-bottom:8px" id="q-review-type-label"></div>
+    <div class="concept-title-display" id="q-review-question"></div>
+  </div>
+  <button class="btn btn-secondary" id="q-reveal-btn" onclick="revealQAnswer()">Show answer</button>
+  <div class="card" id="q-answer-card" style="display:none">
+    <div class="section-title" style="margin-bottom:8px">Answer Notes</div>
+    <p id="q-review-answer" style="font-size:14px;color:var(--muted);line-height:1.6"></p>
+  </div>
+  <div id="q-rating-area" style="display:none">
+    <div class="section-title" style="margin-bottom:8px">How did you do?</div>
+    <div class="mastery-btns">
+      <button class="mastery-btn" style="color:var(--red)" onclick="rateQuestion(1)">✗ Weak</button>
+      <button class="mastery-btn" onclick="rateQuestion(2)">～ Ok</button>
+      <button class="mastery-btn" style="color:var(--green)" onclick="rateQuestion(3)">✓ Strong</button>
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════════ SYNC MODAL ═══════════════════════ -->
@@ -1376,6 +1587,365 @@ async function rateEntry(score) {
       '<div class="card" style="text-align:center;color:var(--green);padding:20px">✓ All caught up!</div>'
     );
   }
+}
+
+// ═══════════════════════ JOBS ═══════════════════════
+
+const JOB_COLS = [
+  { key: "applied",   label: "Applied" },
+  { key: "phone",     label: "Phone Screen" },
+  { key: "technical", label: "Technical" },
+  { key: "onsite",    label: "Onsite" },
+  { key: "offer",     label: "Offer" },
+  { key: "rejected",  label: "Rejected" },
+];
+
+let _jobs = [];
+let _currentJobId = null;
+
+async function openJobs() {
+  show("jobs");
+  await loadJobs();
+}
+
+async function loadJobs() {
+  try {
+    _jobs = await api("GET", "/applications");
+    renderKanban();
+  } catch (e) { console.warn("Jobs unavailable:", e); }
+}
+
+function renderKanban() {
+  const board = document.getElementById("kanban-board");
+  board.innerHTML = "";
+  JOB_COLS.forEach(col => {
+    const cards = _jobs.filter(j => j.status === col.key);
+    const colEl = document.createElement("div");
+    colEl.className = `kanban-col kanban-col-${col.key}`;
+    colEl.innerHTML = `
+      <div class="kanban-col-header">
+        ${col.label}
+        <span class="col-count">${cards.length}</span>
+      </div>
+      ${cards.map(j => `
+        <div class="kanban-card" onclick="openJobDetail('${j.id}')">
+          <div class="kc-company">${escHtml(j.company)}</div>
+          <div class="kc-role">${escHtml(j.role)}</div>
+          <div class="kc-meta">${j.applied_at ? j.applied_at : ''}${j.location ? ' · ' + escHtml(j.location) : ''}</div>
+        </div>
+      `).join("")}
+    `;
+    board.appendChild(colEl);
+  });
+}
+
+function openJobForm(id) {
+  const modal = document.getElementById("job-form-modal");
+  if (id) {
+    const j = _jobs.find(j => j.id === id);
+    if (!j) return;
+    document.getElementById("job-form-title").textContent = "Edit Application";
+    document.getElementById("job-form-id").value = j.id;
+    document.getElementById("job-company").value = j.company;
+    document.getElementById("job-role").value = j.role;
+    document.getElementById("job-status").value = j.status;
+    document.getElementById("job-work-model").value = j.work_model || "";
+    document.getElementById("job-location").value = j.location || "";
+    document.getElementById("job-salary").value = j.salary_range || "";
+    document.getElementById("job-link").value = j.job_link || "";
+    document.getElementById("job-applied-at").value = j.applied_at || "";
+    document.getElementById("job-notes").value = j.notes || "";
+  } else {
+    document.getElementById("job-form-title").textContent = "Add Application";
+    document.getElementById("job-form-id").value = "";
+    ["job-company","job-role","job-location","job-salary","job-link","job-applied-at","job-notes"].forEach(id => document.getElementById(id).value = "");
+    document.getElementById("job-status").value = "applied";
+    document.getElementById("job-work-model").value = "";
+  }
+  modal.style.display = "flex";
+}
+
+function closeJobForm() {
+  document.getElementById("job-form-modal").style.display = "none";
+}
+
+async function saveJob() {
+  const id = document.getElementById("job-form-id").value;
+  const payload = {
+    company: document.getElementById("job-company").value.trim(),
+    role: document.getElementById("job-role").value.trim(),
+    status: document.getElementById("job-status").value,
+    work_model: document.getElementById("job-work-model").value || null,
+    location: document.getElementById("job-location").value.trim() || null,
+    salary_range: document.getElementById("job-salary").value.trim() || null,
+    job_link: document.getElementById("job-link").value.trim() || null,
+    applied_at: document.getElementById("job-applied-at").value.trim() || null,
+    notes: document.getElementById("job-notes").value.trim() || null,
+  };
+  if (!payload.company || !payload.role) return alert("Company and role are required.");
+  try {
+    if (id) {
+      await api("PATCH", `/applications/${id}`, payload);
+    } else {
+      await api("POST", "/applications", payload);
+    }
+    closeJobForm();
+    await loadJobs();
+    if (id && _currentJobId === id) openJobDetail(id);
+  } catch (e) { alert("Save failed: " + e.message); }
+}
+
+async function openJobDetail(id) {
+  _currentJobId = id;
+  const j = _jobs.find(j => j.id === id);
+  if (!j) return;
+  document.getElementById("job-detail-company").textContent = j.company;
+  document.getElementById("job-detail-role").textContent = j.role;
+  const statusSel = document.getElementById("job-detail-status");
+  statusSel.innerHTML = JOB_COLS.map(c =>
+    `<option value="${c.key}"${j.status === c.key ? " selected" : ""}>${c.label}</option>`
+  ).join("");
+  statusSel.dataset.jobId = id;
+  const meta = [
+    j.location ? `📍 ${j.location}` : "",
+    j.work_model ? j.work_model : "",
+    j.salary_range ? `💰 ${j.salary_range}` : "",
+    j.applied_at ? `📅 ${j.applied_at}` : "",
+    j.job_link ? `<a href="${escHtml(j.job_link)}" target="_blank" style="color:var(--accent)">Job link ↗</a>` : "",
+    j.notes ? `<em>${escHtml(j.notes)}</em>` : "",
+  ].filter(Boolean).join("<br>");
+  document.getElementById("job-detail-meta").innerHTML = meta;
+
+  try {
+    const detail = await api("GET", `/applications/${id}`);
+    const rounds = detail.rounds || [];
+    document.getElementById("job-detail-rounds").innerHTML = rounds.length
+      ? rounds.map(r => `
+          <div class="round-item">
+            <strong>${escHtml(r.name)}</strong>${r.date ? ` · ${r.date}` : ""}
+            ${r.feedback ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${escHtml(r.feedback)}</div>` : ""}
+          </div>`).join("")
+      : `<div class="empty" style="padding:16px 0;font-size:13px">No rounds yet</div>`;
+  } catch (e) { document.getElementById("job-detail-rounds").innerHTML = ""; }
+
+  document.getElementById("job-detail-overlay").classList.add("open");
+}
+
+function closeJobDetail() {
+  document.getElementById("job-detail-overlay").classList.remove("open");
+  _currentJobId = null;
+}
+
+async function updateJobStatus(sel) {
+  const id = sel.dataset.jobId;
+  try {
+    await api("PATCH", `/applications/${id}`, { status: sel.value });
+    await loadJobs();
+  } catch (e) { alert("Update failed: " + e.message); }
+}
+
+function editCurrentJob() {
+  if (_currentJobId) openJobForm(_currentJobId);
+}
+
+async function deleteCurrentJob() {
+  if (!_currentJobId || !confirm("Delete this application?")) return;
+  try {
+    await fetch(`/applications/${_currentJobId}`, { method: "DELETE" });
+    closeJobDetail();
+    await loadJobs();
+  } catch (e) { alert("Delete failed: " + e.message); }
+}
+
+async function addRound() {
+  if (!_currentJobId) return;
+  const name = document.getElementById("new-round-name").value.trim();
+  const date = document.getElementById("new-round-date").value.trim();
+  if (!name) return;
+  try {
+    await api("POST", `/applications/${_currentJobId}/rounds`, { name, date: date || null });
+    document.getElementById("new-round-name").value = "";
+    document.getElementById("new-round-date").value = "";
+    await openJobDetail(_currentJobId);
+  } catch (e) { alert("Add round failed: " + e.message); }
+}
+
+function viewQuestionsForJob() {
+  if (!_currentJobId) return;
+  const j = _jobs.find(j => j.id === _currentJobId);
+  closeJobDetail();
+  openQuestions(j ? j.company : null);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ═══════════════════════ QUESTIONS ═══════════════════════
+
+let _questions = [];
+let _qFilter = { type: null, due: false };
+let _qReviewQueue = [];
+let _qReviewIndex = 0;
+
+async function openQuestions(filterCompany) {
+  show("questions");
+  await loadQuestions(filterCompany);
+}
+
+async function loadQuestions(filterCompany) {
+  try {
+    let url = "/questions";
+    if (_qFilter.due) url += "?due_only=true";
+    else if (_qFilter.type) url += `?q_type=${_qFilter.type}`;
+    _questions = await api("GET", url);
+
+    if (filterCompany) {
+      const apps = await api("GET", "/applications");
+      const appId = (apps.find(a => a.company === filterCompany) || {}).id;
+      if (appId) _questions = _questions.filter(q => q.application_id === appId);
+    }
+
+    // Update due badge
+    const due = await api("GET", "/questions?due_only=true");
+    const badge = document.getElementById("q-due-count");
+    const homeBadge = document.getElementById("questions-due-badge");
+    const count = due.length;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? "inline" : "none";
+    if (homeBadge) { homeBadge.textContent = count; homeBadge.style.display = count > 0 ? "inline" : "none"; }
+
+    renderQuestions();
+  } catch (e) { console.warn("Questions unavailable:", e); }
+}
+
+function renderQuestions() {
+  const list = document.getElementById("q-list");
+  if (!_questions.length) {
+    list.innerHTML = `<div class="empty">No questions yet</div>`;
+    return;
+  }
+  list.innerHTML = _questions.map(q => {
+    const dots = [1,2,3].map(i =>
+      `<span class="score-dot-sm${q.self_score >= i ? " filled" : ""}"></span>`
+    ).join("");
+    const isDue = !q.next_review_at || new Date(q.next_review_at) <= new Date();
+    return `
+    <div class="q-card" id="qcard-${q.id}">
+      <div class="q-text" onclick="toggleQAnswer('${q.id}')">${escHtml(q.question)}</div>
+      <div class="q-meta">
+        <span class="type-badge ${q.q_type}">${q.q_type.replace("_"," ")}</span>
+        <span style="font-size:11px;color:var(--muted)">${q.source}</span>
+        ${isDue ? '<span class="due-badge">due</span>' : ''}
+        <span class="score-dots" onclick="cycleQScore('${q.id}')" title="Self-score">${dots}</span>
+        <button onclick="deleteQuestion('${q.id}')" style="margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px">✕</button>
+      </div>
+      <div class="q-answer" id="qans-${q.id}">${q.answer ? escHtml(q.answer) : '<em style="color:var(--muted)">No answer notes</em>'}</div>
+    </div>`;
+  }).join("");
+}
+
+function toggleQAnswer(id) {
+  document.getElementById("qans-" + id).classList.toggle("visible");
+}
+
+async function cycleQScore(id) {
+  const q = _questions.find(q => q.id === id);
+  if (!q) return;
+  const next = (q.self_score + 1) % 4;
+  try {
+    await api("PATCH", `/questions/${id}`, { self_score: next });
+    q.self_score = next;
+    renderQuestions();
+  } catch (e) { console.warn(e); }
+}
+
+async function deleteQuestion(id) {
+  if (!confirm("Delete this question?")) return;
+  try {
+    await fetch(`/questions/${id}`, { method: "DELETE" });
+    _questions = _questions.filter(q => q.id !== id);
+    renderQuestions();
+  } catch (e) { alert("Delete failed: " + e.message); }
+}
+
+function setQFilter(btn, key, val) {
+  document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  _qFilter = { type: null, due: false };
+  if (key === "type") _qFilter.type = val;
+  if (key === "due") _qFilter.due = val;
+  loadQuestions();
+}
+
+function toggleQAddForm() {
+  const form = document.getElementById("q-add-form");
+  form.style.display = form.style.display === "none" ? "block" : "none";
+}
+
+async function submitQuestion() {
+  const question = document.getElementById("q-question-input").value.trim();
+  if (!question) return;
+  const payload = {
+    question,
+    answer: document.getElementById("q-answer-input").value.trim() || null,
+    q_type: document.getElementById("q-type-input").value,
+    source: document.getElementById("q-source-input").value,
+  };
+  try {
+    await api("POST", "/questions", payload);
+    document.getElementById("q-question-input").value = "";
+    document.getElementById("q-answer-input").value = "";
+    document.getElementById("q-add-form").style.display = "none";
+    await loadQuestions();
+  } catch (e) { alert("Add failed: " + e.message); }
+}
+
+async function startQuestionReview() {
+  try {
+    const due = await api("GET", "/questions?due_only=true");
+    if (!due.length) {
+      alert("No questions due for review!");
+      return;
+    }
+    _qReviewQueue = due;
+    _qReviewIndex = 0;
+    renderQReview();
+    show("q-review");
+  } catch (e) { alert("Could not start review: " + e.message); }
+}
+
+function renderQReview() {
+  const q = _qReviewQueue[_qReviewIndex];
+  if (!q) {
+    show("questions");
+    loadQuestions();
+    return;
+  }
+  document.getElementById("q-review-progress").textContent =
+    `${_qReviewIndex + 1} / ${_qReviewQueue.length}`;
+  document.getElementById("q-review-type-label").textContent =
+    q.q_type.replace("_", " ").toUpperCase();
+  document.getElementById("q-review-question").textContent = q.question;
+  document.getElementById("q-answer-card").style.display = "none";
+  document.getElementById("q-rating-area").style.display = "none";
+  document.getElementById("q-reveal-btn").style.display = "block";
+  document.getElementById("q-review-answer").textContent = q.answer || "No answer notes.";
+}
+
+function revealQAnswer() {
+  document.getElementById("q-answer-card").style.display = "block";
+  document.getElementById("q-rating-area").style.display = "block";
+  document.getElementById("q-reveal-btn").style.display = "none";
+}
+
+async function rateQuestion(grade) {
+  const q = _qReviewQueue[_qReviewIndex];
+  try {
+    await api("POST", `/questions/${q.id}/review`, { grade });
+  } catch (e) { console.warn(e); }
+  _qReviewIndex++;
+  renderQReview();
 }
 
 // ═══════════════════════ PWA ═══════════════════════

@@ -160,3 +160,79 @@ class PronunciationResult(BaseModel):
     heard: str
     match: bool
     score: float
+
+
+# ---------------------------------------------------------------------------
+# Job Hunt models
+# ---------------------------------------------------------------------------
+
+class ApplicationStatus(str, Enum):
+    APPLIED = "applied"
+    PHONE = "phone"
+    TECHNICAL = "technical"
+    ONSITE = "onsite"
+    OFFER = "offer"
+    REJECTED = "rejected"
+
+
+class ApplicationRound(BaseModel):
+    id: Optional[int] = None
+    application_id: str
+    name: str
+    date: Optional[str] = None
+    feedback: Optional[str] = None
+
+
+class Application(BaseModel):
+    id: str
+    company: str
+    role: str
+    status: ApplicationStatus = ApplicationStatus.APPLIED
+    location: Optional[str] = None
+    work_model: Optional[str] = None
+    salary_range: Optional[str] = None
+    job_link: Optional[str] = None
+    resume_version: Optional[str] = None
+    notes: Optional[str] = None
+    applied_at: Optional[date] = None
+    created_at: datetime
+
+
+class QuestionType(str, Enum):
+    BEHAVIORAL = "behavioral"
+    SYSTEM_DESIGN = "system_design"
+    CODING = "coding"
+    OTHER = "other"
+
+
+class QuestionSource(str, Enum):
+    REAL = "real"
+    MOCK = "mock"
+
+
+class InterviewQuestion(BaseModel):
+    id: str
+    question: str
+    answer: Optional[str] = None
+    q_type: QuestionType = QuestionType.OTHER
+    source: QuestionSource = QuestionSource.MOCK
+    application_id: Optional[str] = None
+    round: Optional[str] = None
+    self_score: int = 0
+    tags: list[str] = []
+    notes: Optional[str] = None
+    ef: float = 2.5
+    interval: int = 0
+    reps: int = 0
+    next_review_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class QuestionReviewRecord(BaseModel):
+    question_id: str
+    grade: int
+    reviewed_at: datetime
+    next_review_at: datetime
+    interval: int
+    reps: int
+    ef: float

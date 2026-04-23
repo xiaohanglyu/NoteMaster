@@ -6,6 +6,8 @@ from notemaster.models import (
     Highlight, HighlightColor, Book, Concept, ConceptEdge, RelationType,
     ConceptReviewRecord, StudySession, ConceptWithPriority,
     Entry, EntryType, EntryReviewRecord, EntryWithPriority,
+    Application, ApplicationStatus, ApplicationRound,
+    InterviewQuestion, QuestionType, QuestionSource, QuestionReviewRecord,
 )
 
 _DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "notemaster.db"
@@ -135,6 +137,49 @@ class Database:
                 reviewed_at    TEXT NOT NULL,
                 next_review_at TEXT NOT NULL,
                 FOREIGN KEY (entry_id) REFERENCES entries(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS applications (
+                id              TEXT PRIMARY KEY,
+                company         TEXT NOT NULL,
+                role            TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'applied',
+                location        TEXT,
+                work_model      TEXT,
+                salary_range    TEXT,
+                job_link        TEXT,
+                resume_version  TEXT,
+                notes           TEXT,
+                applied_at      TEXT,
+                created_at      TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS application_rounds (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                application_id  TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                date            TEXT,
+                feedback        TEXT,
+                FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS interview_questions (
+                id              TEXT PRIMARY KEY,
+                question        TEXT NOT NULL,
+                answer          TEXT,
+                q_type          TEXT NOT NULL DEFAULT 'other',
+                source          TEXT NOT NULL DEFAULT 'mock',
+                application_id  TEXT,
+                round           TEXT,
+                self_score      INTEGER NOT NULL DEFAULT 0,
+                tags            TEXT NOT NULL DEFAULT '[]',
+                notes           TEXT,
+                ef              REAL NOT NULL DEFAULT 2.5,
+                interval        INTEGER NOT NULL DEFAULT 0,
+                reps            INTEGER NOT NULL DEFAULT 0,
+                next_review_at  TEXT,
+                created_at      TEXT NOT NULL,
+                FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE SET NULL
             );
         """)
 
@@ -596,6 +641,274 @@ class Database:
         result.sort(key=lambda x: x.priority, reverse=True)
         return result
 
+    # --- Applications ---
+
+    def create_application(self, app: Application) -> Application:
+        self.conn.execute(
+            """
+            INSERT INTO applications
+                (id, company, role, status, location, work_model, salary_range,
+                 job_link, resume_version, notes, applied_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                app.id, app.company, app.role, app.status.value,
+                app.location, app.work_model, app.salary_range,
+                app.job_link, app.resume_version, app.notes,
+                app.applied_at.isoformat() if app.applied_at else None,
+                app.created_at.isoformat(),
+            ),
+        )
+        self.conn.commit()
+        return app
+
+    def get_application(self, app_id: str) -> Optional[Application]:
+        row = self.conn.execute(
+            "SELECT * FROM applications WHERE id = ?", (app_id,)
+        ).fetchone()
+        return _row_to_application(row) if row else None
+
+    def get_applications(self, status: Optional[ApplicationStatus] = None) -> list[Application]:
+        if status:
+            rows = self.conn.execute(
+                "SELECT * FROM applications WHERE status = ? ORDER BY created_at DESC",
+                (status.value,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM applications ORDER BY created_at DESC"
+            ).fetchall()
+        return [_row_to_application(r) for r in rows]
+
+    def update_application(self, app_id: str, **kwargs) -> Optional[Application]:
+        allowed = {"status", "location", "work_model", "salary_range",
+                   "job_link", "resume_version", "notes", "applied_at"}
+        updates, params = [], []
+        for key, value in kwargs.items():
+            if key not in allowed:
+                continue
+            updates.append(f"{key} = ?")
+            if key == "status" and isinstance(value, ApplicationStatus):
+                params.append(value.value)
+            elif key == "applied_at" and hasattr(value, "isoformat"):
+                params.append(value.isoformat())
+            else:
+                params.append(value)
+        if not updates:
+            return self.get_application(app_id)
+        params.append(app_id)
+        self.conn.execute(
+            f"UPDATE applications SET {', '.join(updates)} WHERE id = ?", params
+        )
+        self.conn.commit()
+        return self.get_application(app_id)
+
+    def delete_application(self, app_id: str):
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.execute("DELETE FROM applications WHERE id = ?", (app_id,))
+        self.conn.commit()
+
+    # --- Application Rounds ---
+
+    def add_application_round(
+        self,
+        app_id: str,
+        name: str,
+        date: Optional[str] = None,
+        feedback: Optional[str] = None,
+    ) -> ApplicationRound:
+        cur = self.conn.execute(
+            "INSERT INTO application_rounds (application_id, name, date, feedback) VALUES (?, ?, ?, ?)",
+            (app_id, name, date, feedback),
+        )
+        self.conn.commit()
+        return ApplicationRound(
+            id=cur.lastrowid, application_id=app_id, name=name,
+            date=date, feedback=feedback,
+        )
+
+    def get_application_rounds(self, app_id: str) -> list[ApplicationRound]:
+        rows = self.conn.execute(
+            "SELECT * FROM application_rounds WHERE application_id = ? ORDER BY id",
+            (app_id,),
+        ).fetchall()
+        return [_row_to_round(r) for r in rows]
+
+    def update_application_round(self, round_id: int, **kwargs) -> Optional[ApplicationRound]:
+        allowed = {"name", "date", "feedback"}
+        updates, params = [], []
+        for key, value in kwargs.items():
+            if key in allowed:
+                updates.append(f"{key} = ?")
+                params.append(value)
+        if not updates:
+            row = self.conn.execute(
+                "SELECT * FROM application_rounds WHERE id = ?", (round_id,)
+            ).fetchone()
+            return _row_to_round(row) if row else None
+        params.append(round_id)
+        self.conn.execute(
+            f"UPDATE application_rounds SET {', '.join(updates)} WHERE id = ?", params
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT * FROM application_rounds WHERE id = ?", (round_id,)
+        ).fetchone()
+        return _row_to_round(row) if row else None
+
+    # --- Interview Questions ---
+
+    def create_question(self, q: InterviewQuestion) -> InterviewQuestion:
+        import json
+        self.conn.execute(
+            """
+            INSERT INTO interview_questions
+                (id, question, answer, q_type, source, application_id, round,
+                 self_score, tags, notes, ef, interval, reps, next_review_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                q.id, q.question, q.answer, q.q_type.value, q.source.value,
+                q.application_id, q.round, q.self_score,
+                json.dumps(q.tags), q.notes, q.ef, q.interval, q.reps,
+                q.next_review_at.isoformat() if q.next_review_at else None,
+                q.created_at.isoformat(),
+            ),
+        )
+        self.conn.commit()
+        return q
+
+    def get_question(self, question_id: str) -> Optional[InterviewQuestion]:
+        row = self.conn.execute(
+            "SELECT * FROM interview_questions WHERE id = ?", (question_id,)
+        ).fetchone()
+        return _row_to_question(row) if row else None
+
+    def get_questions(
+        self,
+        q_type: Optional[QuestionType] = None,
+        source: Optional[QuestionSource] = None,
+        application_id: Optional[str] = None,
+        due_only: bool = False,
+    ) -> list[InterviewQuestion]:
+        clauses, params = [], []
+        if q_type:
+            clauses.append("q_type = ?")
+            params.append(q_type.value)
+        if source:
+            clauses.append("source = ?")
+            params.append(source.value)
+        if application_id:
+            clauses.append("application_id = ?")
+            params.append(application_id)
+        if due_only:
+            now = datetime.now().isoformat()
+            clauses.append("(next_review_at IS NULL OR next_review_at <= ?)")
+            params.append(now)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.conn.execute(
+            f"SELECT * FROM interview_questions {where} ORDER BY created_at DESC",
+            params,
+        ).fetchall()
+        return [_row_to_question(r) for r in rows]
+
+    def update_question(self, question_id: str, **kwargs) -> Optional[InterviewQuestion]:
+        import json
+        allowed = {"question", "answer", "q_type", "source", "application_id",
+                   "round", "self_score", "tags", "notes"}
+        updates, params = [], []
+        for key, value in kwargs.items():
+            if key not in allowed:
+                continue
+            updates.append(f"{key} = ?")
+            if key == "q_type" and isinstance(value, QuestionType):
+                params.append(value.value)
+            elif key == "source" and isinstance(value, QuestionSource):
+                params.append(value.value)
+            elif key == "tags" and isinstance(value, list):
+                params.append(json.dumps(value))
+            else:
+                params.append(value)
+        if not updates:
+            return self.get_question(question_id)
+        params.append(question_id)
+        self.conn.execute(
+            f"UPDATE interview_questions SET {', '.join(updates)} WHERE id = ?", params
+        )
+        self.conn.commit()
+        return self.get_question(question_id)
+
+    def delete_question(self, question_id: str):
+        self.conn.execute(
+            "DELETE FROM interview_questions WHERE id = ?", (question_id,)
+        )
+        self.conn.commit()
+
+    def bulk_import_questions(self, questions: list[InterviewQuestion]) -> int:
+        imported = 0
+        for q in questions:
+            existing = self.get_question(q.id)
+            if existing is None:
+                self.create_question(q)
+                imported += 1
+        return imported
+
+    def get_next_due_question(self) -> Optional[InterviewQuestion]:
+        now = datetime.now().isoformat()
+        row = self.conn.execute(
+            """
+            SELECT * FROM interview_questions
+            WHERE next_review_at IS NULL OR next_review_at <= ?
+            ORDER BY COALESCE(next_review_at, '1970-01-01') ASC
+            LIMIT 1
+            """,
+            (now,),
+        ).fetchone()
+        return _row_to_question(row) if row else None
+
+    def record_question_review(self, question_id: str, grade: int) -> QuestionReviewRecord:
+        q = self.get_question(question_id)
+        if q is None:
+            raise ValueError(f"Question {question_id} not found")
+
+        ef, interval, reps = q.ef, q.interval, q.reps
+
+        if grade >= 2:
+            if reps == 0:
+                interval = 1
+            elif reps == 1:
+                interval = 3
+            else:
+                interval = round(interval * ef)
+            reps += 1
+            ef = max(1.3, ef + 0.1 - (3 - grade) * (0.08 + (3 - grade) * 0.02))
+        else:
+            reps = 0
+            interval = 1
+
+        now = datetime.now()
+        next_review = now + timedelta(days=interval)
+
+        self.conn.execute(
+            """
+            UPDATE interview_questions
+            SET ef = ?, interval = ?, reps = ?, next_review_at = ?
+            WHERE id = ?
+            """,
+            (ef, interval, reps, next_review.isoformat(), question_id),
+        )
+        self.conn.commit()
+
+        return QuestionReviewRecord(
+            question_id=question_id,
+            grade=grade,
+            reviewed_at=now,
+            next_review_at=next_review,
+            interval=interval,
+            reps=reps,
+            ef=ef,
+        )
+
     # --- Helpers ---
 
     def _get_concept_highlight_colors(self, concept_id: str) -> list[str]:
@@ -634,6 +947,55 @@ def _row_to_highlight(row: sqlite3.Row) -> Highlight:
         book_id=row["book_id"],
         book_title=row["book_title"],
         chapter=row["chapter"],
+    )
+
+
+def _row_to_application(row: sqlite3.Row) -> Application:
+    from datetime import date as date_type
+    return Application(
+        id=row["id"],
+        company=row["company"],
+        role=row["role"],
+        status=ApplicationStatus(row["status"]),
+        location=row["location"],
+        work_model=row["work_model"],
+        salary_range=row["salary_range"],
+        job_link=row["job_link"],
+        resume_version=row["resume_version"],
+        notes=row["notes"],
+        applied_at=date_type.fromisoformat(row["applied_at"]) if row["applied_at"] else None,
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def _row_to_round(row: sqlite3.Row) -> ApplicationRound:
+    return ApplicationRound(
+        id=row["id"],
+        application_id=row["application_id"],
+        name=row["name"],
+        date=row["date"],
+        feedback=row["feedback"],
+    )
+
+
+def _row_to_question(row: sqlite3.Row) -> InterviewQuestion:
+    import json
+    return InterviewQuestion(
+        id=row["id"],
+        question=row["question"],
+        answer=row["answer"],
+        q_type=QuestionType(row["q_type"]),
+        source=QuestionSource(row["source"]),
+        application_id=row["application_id"],
+        round=row["round"],
+        self_score=row["self_score"],
+        tags=json.loads(row["tags"]),
+        notes=row["notes"],
+        ef=row["ef"],
+        interval=row["interval"],
+        reps=row["reps"],
+        next_review_at=datetime.fromisoformat(row["next_review_at"]) if row["next_review_at"] else None,
+        created_at=datetime.fromisoformat(row["created_at"]),
     )
 
 
