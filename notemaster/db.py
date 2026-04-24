@@ -1,13 +1,14 @@
 import sqlite3
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from notemaster.models import (
     Highlight, HighlightColor, Book, Concept, ConceptEdge, RelationType,
     ConceptReviewRecord, StudySession, ConceptWithPriority,
-    Entry, EntryType, EntryReviewRecord, EntryWithPriority,
+    Entry, EntryData, EntryType, EntryReviewRecord, EntryWithPriority,
     Application, ApplicationStatus, ApplicationRound,
     InterviewQuestion, QuestionType, QuestionSource, QuestionReviewRecord,
+    InboxItem,
 )
 
 _DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "notemaster.db"
@@ -47,12 +48,51 @@ class Database:
         self._create_tables()
 
     def _migrate(self):
+        import json as _json
+
         # review_records: old schema used highlight_id; new schema uses concept_id
         row = self.conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='review_records'"
         ).fetchone()
         if row and "highlight_id" in row[0]:
             self.conn.execute("DROP TABLE review_records")
+            self.conn.commit()
+
+        # entries: collapse flat columns into a single data JSON column
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='entries'"
+        ).fetchone()
+        if row and "phonetics" in row[0]:
+            # Step 1: add data column
+            self.conn.execute("ALTER TABLE entries ADD COLUMN data TEXT NOT NULL DEFAULT '{}'")
+            # Step 2: pack existing flat columns into data JSON
+            rows = self.conn.execute(
+                "SELECT id, phonetics, translation, examples, context_note FROM entries"
+            ).fetchall()
+            for r in rows:
+                packed = _json.dumps({
+                    "phonetics": r[1],
+                    "translation": r[2],
+                    "examples": _json.loads(r[3] or "[]"),
+                    "context_note": r[4],
+                })
+                self.conn.execute("UPDATE entries SET data = ? WHERE id = ?", (packed, r[0]))
+            # Step 3: rebuild table without old columns
+            self.conn.executescript("""
+                CREATE TABLE entries_new (
+                    id          TEXT PRIMARY KEY,
+                    text        TEXT NOT NULL,
+                    source_type TEXT NOT NULL DEFAULT 'manual',
+                    source_ref  TEXT,
+                    data        TEXT NOT NULL DEFAULT '{}',
+                    weight      REAL NOT NULL DEFAULT 1.0,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL
+                );
+                INSERT INTO entries_new SELECT id, text, source_type, source_ref, data, weight, created_at, updated_at FROM entries;
+                DROP TABLE entries;
+                ALTER TABLE entries_new RENAME TO entries;
+            """)
             self.conn.commit()
 
     def _create_tables(self):
@@ -120,16 +160,14 @@ class Database:
             );
 
             CREATE TABLE IF NOT EXISTS entries (
-                id           TEXT PRIMARY KEY,
-                text         TEXT NOT NULL,
-                source_type  TEXT NOT NULL DEFAULT 'manual',
-                source_ref   TEXT,
-                phonetics    TEXT,
-                examples     TEXT NOT NULL DEFAULT '[]',
-                context_note TEXT,
-                weight       REAL NOT NULL DEFAULT 1.0,
-                created_at   TEXT NOT NULL,
-                updated_at   TEXT NOT NULL
+                id          TEXT PRIMARY KEY,
+                text        TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'manual',
+                source_ref  TEXT,
+                data        TEXT NOT NULL DEFAULT '{}',
+                weight      REAL NOT NULL DEFAULT 1.0,
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS entry_review_records (
@@ -198,6 +236,14 @@ class Database:
                 highlights_synced INTEGER NOT NULL DEFAULT 0,
                 sections        TEXT,
                 synced_at       TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS inbox_items (
+                id           TEXT PRIMARY KEY,
+                content      TEXT NOT NULL,
+                tags         TEXT NOT NULL DEFAULT '[]',
+                created_at   TEXT NOT NULL,
+                processed_at TEXT
             );
         """)
 
@@ -575,12 +621,12 @@ class Database:
         self.conn.execute(
             """
             INSERT INTO entries
-                (id, text, source_type, source_ref, phonetics, examples, context_note, weight, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, text, source_type, source_ref, data, weight, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.id, entry.text, entry.source_type.value, entry.source_ref,
-                entry.phonetics, json.dumps(entry.examples), entry.context_note,
+                json.dumps(entry.data.model_dump()),
                 entry.weight, now, now,
             ),
         )
@@ -609,11 +655,13 @@ class Database:
         self,
         entry_id: str,
         text: Optional[str] = None,
-        phonetics: Optional[str] = None,
-        examples: Optional[list[str]] = None,
-        context_note: Optional[str] = None,
+        data: Optional[EntryData] = None,
     ) -> Optional[Entry]:
         import json
+        existing = self.get_entry(entry_id)
+        if existing is None:
+            return None
+
         updates = []
         params: list = []
         now = datetime.now().isoformat()
@@ -621,18 +669,16 @@ class Database:
         if text is not None:
             updates.append("text = ?")
             params.append(text)
-        if phonetics is not None:
-            updates.append("phonetics = ?")
-            params.append(phonetics)
-        if examples is not None:
-            updates.append("examples = ?")
-            params.append(json.dumps(examples))
-        if context_note is not None:
-            updates.append("context_note = ?")
-            params.append(context_note)
+        if data is not None:
+            # Merge: only overwrite fields that are explicitly set (non-default)
+            merged = existing.data.model_dump()
+            incoming = data.model_dump(exclude_unset=True)
+            merged.update(incoming)
+            updates.append("data = ?")
+            params.append(json.dumps(merged))
 
         if not updates:
-            return self.get_entry(entry_id)
+            return existing
 
         updates.append("updated_at = ?")
         params.append(now)
@@ -1034,6 +1080,82 @@ class Database:
         ).fetchall()
         return [r["color"] for r in rows]
 
+    # ------------------------------------------------------------------
+    # Inbox
+    # ------------------------------------------------------------------
+
+    def create_inbox_item(self, item: InboxItem) -> InboxItem:
+        import json as _json
+        self.conn.execute(
+            "INSERT INTO inbox_items (id, content, tags, created_at, processed_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                item.id,
+                item.content,
+                _json.dumps(item.tags),
+                item.created_at.isoformat(),
+                item.processed_at.isoformat() if item.processed_at else None,
+            ),
+        )
+        self.conn.commit()
+        return item
+
+    def get_inbox_item(self, item_id: str) -> Optional[InboxItem]:
+        row = self.conn.execute(
+            "SELECT * FROM inbox_items WHERE id = ?", (item_id,)
+        ).fetchone()
+        return self._row_to_inbox_item(row) if row else None
+
+    def get_inbox_items(self, pending_only: bool = False) -> list[InboxItem]:
+        if pending_only:
+            rows = self.conn.execute(
+                "SELECT * FROM inbox_items WHERE processed_at IS NULL ORDER BY created_at DESC"
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM inbox_items ORDER BY created_at DESC"
+            ).fetchall()
+        return [self._row_to_inbox_item(r) for r in rows]
+
+    def update_inbox_item(self, item_id: str, content: Optional[str] = None, tags: Optional[list] = None) -> Optional[InboxItem]:
+        import json as _json
+        item = self.get_inbox_item(item_id)
+        if item is None:
+            return None
+        if content is not None:
+            self.conn.execute("UPDATE inbox_items SET content = ? WHERE id = ?", (content, item_id))
+        if tags is not None:
+            self.conn.execute("UPDATE inbox_items SET tags = ? WHERE id = ?", (_json.dumps(tags), item_id))
+        self.conn.commit()
+        return self.get_inbox_item(item_id)
+
+    def mark_inbox_processed(self, item_id: str) -> None:
+        self.conn.execute(
+            "UPDATE inbox_items SET processed_at = ? WHERE id = ?",
+            (datetime.now(tz=timezone.utc).replace(tzinfo=None).isoformat(), item_id),
+        )
+        self.conn.commit()
+
+    def delete_inbox_item(self, item_id: str) -> bool:
+        cur = self.conn.execute("DELETE FROM inbox_items WHERE id = ?", (item_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def get_inbox_pending_count(self) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM inbox_items WHERE processed_at IS NULL"
+        ).fetchone()
+        return row[0]
+
+    def _row_to_inbox_item(self, row: sqlite3.Row) -> InboxItem:
+        import json as _json
+        return InboxItem(
+            id=row["id"],
+            content=row["content"],
+            tags=_json.loads(row["tags"] or "[]"),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            processed_at=datetime.fromisoformat(row["processed_at"]) if row["processed_at"] else None,
+        )
+
     def _row_to_concept(self, row: sqlite3.Row) -> Concept:
         import json as _json
         h_rows = self.conn.execute(
@@ -1116,14 +1238,13 @@ def _row_to_question(row: sqlite3.Row) -> InterviewQuestion:
 
 def _row_to_entry(row: sqlite3.Row) -> Entry:
     import json
+    raw = json.loads(row["data"] or "{}")
     return Entry(
         id=row["id"],
         text=row["text"],
         source_type=EntryType(row["source_type"]),
         source_ref=row["source_ref"],
-        phonetics=row["phonetics"],
-        examples=json.loads(row["examples"]),
-        context_note=row["context_note"],
+        data=EntryData(**{k: v for k, v in raw.items() if v is not None}),
         weight=row["weight"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),

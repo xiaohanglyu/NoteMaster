@@ -2,7 +2,7 @@ import json
 from difflib import SequenceMatcher
 from openai import OpenAI
 from notemaster.config import AI_BASE_URL, AI_MODEL, SYNTHESIS_BATCH_SIZE
-from notemaster.models import Concept, EvaluationResult, Entry, PronunciationResult
+from notemaster.models import Concept, EvaluationResult, Entry, InboxClassification, InboxItem, PronunciationResult
 
 _EVALUATE_SYSTEM = """\
 You are a senior backend engineering interviewer and English writing coach.
@@ -335,18 +335,20 @@ You are an English language expert helping a Chinese speaker learn natural Engli
 Given a word, phrase, or sentence — whether everyday or professional — provide:
 
 1. IPA phonetic transcription (American English)
-2. A usage note in this exact format — be specific and practical:
+2. A concise Chinese translation (2–10 characters, native Chinese phrasing)
+3. A usage note in this exact format — be specific and practical:
    "[word class] | Context: <domain or register> | When to use: <situation/context> | Pattern: <grammatical pattern with ~>"
    Examples:
    - "noun phrase | Context: mathematics, ML | When to use: measuring straight-line distance between points or vectors | Pattern: calculate/measure the ~ between X and Y"
    - "idiom | Context: professional | When to use: describing a productive start to a new role or project | Pattern: hit the ground running [on/with sth]"
    - "phrasal verb | Context: daily conversation | When to use: saying you almost did something but didn't | Pattern: I was about to ~ when ..."
    - "adjective | Context: informal | When to use: expressing something is fashionable or impressive in casual speech | Pattern: that's so ~"
-3. Two natural example sentences matching the actual register (casual if daily, professional if technical)
+4. Two natural example sentences matching the actual register (casual if daily, professional if technical)
 
 Respond ONLY with a JSON object:
 {
   "phonetics": "<IPA transcription>",
+  "translation": "<Chinese translation>",
   "context_note": "<usage note in the format above>",
   "examples": ["<sentence 1>", "<sentence 2>"]
 }
@@ -376,6 +378,52 @@ def enrich_entry(entry: Entry, client: OpenAI | None = None) -> dict:
         raise ValueError(f"invalid enrich response: {raw!r}") from exc
 
 
+_ENRICH_EXTRA_SYSTEM = """\
+You are an English language expert helping a Chinese speaker learn natural English.
+Given a word or phrase and a list of requested attributes, provide only those attributes.
+
+Attribute definitions:
+- tenses: list of inflected verb forms (e.g. ["run", "runs", "ran", "has run", "will run"])
+- word_forms: list of other grammatical forms with label (e.g. ["noun: a run", "adjective: running water"])
+- root: etymology string (e.g. "Latin: currere = to run")
+- synonyms: list of synonyms with brief contrast note (e.g. ["dash — more sudden", "sprint — short distance"])
+- derivatives: list of derived words (e.g. ["runner", "running", "outrun", "forerunner"])
+
+Respond ONLY with a JSON object containing exactly the requested keys.
+"""
+
+_EXTRA_FIELD_NAMES = {"tenses", "word_forms", "root", "synonyms", "derivatives"}
+
+
+def enrich_entry_extra(entry: Entry, fields: list[str], client: OpenAI | None = None) -> dict:
+    if not fields:
+        raise ValueError("fields must not be empty")
+    if client is None:
+        client = _get_client()
+
+    field_list = ", ".join(fields)
+    completion = client.chat.completions.create(
+        model=AI_MODEL,
+        messages=[
+            {"role": "system", "content": _ENRICH_EXTRA_SYSTEM},
+            {"role": "user", "content": (
+                f'Word/phrase: "{entry.text}"\n'
+                f'Requested attributes: {field_list}'
+            )},
+        ],
+        temperature=0.2,
+    )
+
+    raw = completion.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+        raw = raw.rsplit("```", 1)[0].strip()
+    try:
+        return json.loads(raw)
+    except Exception as exc:
+        raise ValueError(f"invalid enrich_extra response: {raw!r}") from exc
+
+
 def check_pronunciation(entry: Entry, transcript: str) -> PronunciationResult:
     heard = transcript.strip()
     score = SequenceMatcher(None, entry.text.lower(), heard.lower()).ratio()
@@ -397,3 +445,36 @@ def _format_concepts(concepts) -> str:
     for c in concepts:
         lines.append(f"[{c.id}] {c.title}\n  {c.summary}")
     return "\n\n".join(lines)
+
+
+_CLASSIFY_SYSTEM = """\
+Classify the inbox item into one of: english, concept, question, unknown.
+Respond with JSON only — no markdown fences, no extra text:
+{
+  "item_type": "<english|concept|question|unknown>",
+  "reasoning": "<one sentence>",
+  "preview": { <structured fields matching the type> }
+}
+
+For english: {"text": "...", "translation": "<Chinese>"}
+For concept: {"title": "...", "summary": "..."}
+For question: {"question": "...", "q_type": "behavioral|system_design|coding|other"}
+For unknown: {}""".strip()
+
+
+def classify_inbox_item(item: InboxItem, client: OpenAI | None = None) -> InboxClassification:
+    if client is None:
+        client = _get_client()
+    completion = client.chat.completions.create(
+        model=AI_MODEL,
+        messages=[
+            {"role": "system", "content": _CLASSIFY_SYSTEM},
+            {"role": "user", "content": item.content},
+        ],
+        temperature=0.2,
+    )
+    raw = completion.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    data = json.loads(raw)
+    return InboxClassification(**data)

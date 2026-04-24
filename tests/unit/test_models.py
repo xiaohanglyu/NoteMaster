@@ -14,6 +14,76 @@ from notemaster.models import (
 )
 
 
+# --- EntryData ---
+
+class TestEntryData:
+    def test_defaults_are_empty(self):
+        from notemaster.models import EntryData
+        d = EntryData()
+        assert d.phonetics is None
+        assert d.translation is None
+        assert d.context_note is None
+        assert d.examples == []
+        assert d.tenses == []
+        assert d.word_forms == []
+        assert d.root is None
+        assert d.synonyms == []
+        assert d.derivatives == []
+
+    def test_all_fields_roundtrip(self):
+        from notemaster.models import EntryData
+        d = EntryData(
+            phonetics="/hɪt/",
+            translation="迅速投入",
+            context_note="idiom",
+            examples=["She hit the ground running."],
+            tenses=["hit", "hits", "had hit"],
+            word_forms=["noun: a hit"],
+            root="Old English: hyttan",
+            synonyms=["dash", "sprint"],
+            derivatives=["hitting", "hitter"],
+        )
+        assert d.phonetics == "/hɪt/"
+        assert d.translation == "迅速投入"
+        assert len(d.tenses) == 3
+        assert d.root == "Old English: hyttan"
+        assert len(d.synonyms) == 2
+        assert len(d.derivatives) == 2
+
+    def test_list_fields_default_to_empty_list(self):
+        from notemaster.models import EntryData
+        d = EntryData()
+        for field in ("examples", "tenses", "word_forms", "synonyms", "derivatives"):
+            assert getattr(d, field) == [], f"{field} should default to []"
+
+
+# --- Entry with data field ---
+
+class TestEntryWithData:
+    def _make(self, **kwargs):
+        from notemaster.models import Entry, EntryType
+        now = datetime(2026, 4, 24, 10, 0)
+        return Entry(
+            id="e-1", text="hit the ground running",
+            source_type=EntryType.MANUAL,
+            weight=1.0, created_at=now, updated_at=now,
+            **kwargs,
+        )
+
+    def test_data_defaults_to_empty_entry_data(self):
+        from notemaster.models import EntryData
+        e = self._make()
+        assert isinstance(e.data, EntryData)
+        assert e.data.phonetics is None
+
+    def test_data_field_accepted(self):
+        from notemaster.models import EntryData
+        e = self._make(data=EntryData(phonetics="/hɪt/", translation="打"))
+        assert e.data.phonetics == "/hɪt/"
+        assert e.data.translation == "打"
+
+
+
 # --- Highlight ---
 
 class TestHighlight:

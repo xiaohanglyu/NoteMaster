@@ -1,8 +1,8 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
-from notemaster.models import Entry, EntryType, EntryReviewRecord, EntryWithPriority, PronunciationResult
+from notemaster.models import Entry, EntryData, EntryType, EntryReviewRecord, EntryWithPriority, PronunciationResult
 
 
 def make_entry(id="entry-1"):
@@ -12,12 +12,23 @@ def make_entry(id="entry-1"):
         text="hit the ground running",
         source_type=EntryType.MANUAL,
         source_ref=None,
-        phonetics="/hɪt ðə ɡraʊnd ˈrʌnɪŋ/",
-        examples=["She hit the ground running on her first day."],
-        context_note="idiom — start productively",
+        data=EntryData(
+            phonetics="/hɪt ðə ɡraʊnd ˈrʌnɪŋ/",
+            translation="迅速投入工作",
+            examples=["She hit the ground running on her first day."],
+            context_note="idiom — start productively",
+        ),
         weight=1.0,
         created_at=now,
         updated_at=now,
+    )
+
+
+def make_entry_unenriched(id="entry-u"):
+    now = datetime(2026, 4, 23, 10, 0)
+    return Entry(
+        id=id, text="bootstrap", source_type=EntryType.MANUAL,
+        weight=1.0, created_at=now, updated_at=now,
     )
 
 
@@ -32,7 +43,6 @@ def make_entry_with_priority(id="entry-1"):
 
 def make_review_record():
     now = datetime(2026, 4, 23, 10, 0)
-    from datetime import timedelta
     return EntryReviewRecord(
         entry_id="entry-1",
         mastery_score=4,
@@ -73,9 +83,10 @@ class TestCreateEntry:
         data = resp.json()
         assert data["text"] == "hit the ground running"
 
-    def test_entry_has_expected_fields(self, client):
+    def test_entry_has_data_field(self, client):
         tc, _ = client
         data = tc.post("/entries", json={"text": "test phrase"}).json()
+        assert "data" in data
         for field in ("id", "text", "source_type", "weight", "created_at"):
             assert field in data
 
@@ -90,7 +101,6 @@ class TestCreateEntry:
             "text": "at the expense of",
             "source_type": "highlight",
             "source_ref": "DDIA",
-            "context_note": "trade-off phrasing",
         })
         assert resp.status_code == 200
 
@@ -142,7 +152,7 @@ class TestGetEntry:
 class TestUpdateEntry:
     def test_returns_updated_entry(self, client):
         tc, _ = client
-        resp = tc.patch("/entries/entry-1", json={"phonetics": "/hɪt/"})
+        resp = tc.patch("/entries/entry-1", json={"data": {"phonetics": "/hɪt/"}})
         assert resp.status_code == 200
         assert "id" in resp.json()
 
@@ -152,10 +162,18 @@ class TestUpdateEntry:
         resp = tc.patch("/entries/bad-id", json={"text": "x"})
         assert resp.status_code == 404
 
-    def test_partial_update_accepted(self, client):
+    def test_update_text_accepted(self, client):
         tc, _ = client
-        resp = tc.patch("/entries/entry-1", json={"context_note": "new note"})
+        resp = tc.patch("/entries/entry-1", json={"text": "bootstrap"})
         assert resp.status_code == 200
+
+    def test_update_data_with_extended_fields(self, client):
+        tc, mock_db = client
+        resp = tc.patch("/entries/entry-1", json={"data": {"tenses": ["run", "ran"], "root": "Old English"}})
+        assert resp.status_code == 200
+        call_kwargs = mock_db.update_entry.call_args.kwargs
+        assert call_kwargs["data"].tenses == ["run", "ran"]
+        assert call_kwargs["data"].root == "Old English"
 
 
 # ---------------------------------------------------------------------------
@@ -260,15 +278,13 @@ class TestEntryVoiceAnswer:
 
 
 # ---------------------------------------------------------------------------
-# POST /entries/enrich-all  (#22)
+# POST /entries/enrich-all
 # ---------------------------------------------------------------------------
 
 class TestEnrichAll:
     def test_returns_queued_count(self, client):
         tc, mock_db = client
-        unenriched = [make_entry(f"e-{i}") for i in range(3)]
-        for e in unenriched:
-            object.__setattr__(e, "phonetics", None)
+        unenriched = [make_entry_unenriched(f"e-{i}") for i in range(3)]
         mock_db.get_entries.return_value = unenriched
         resp = tc.post("/entries/enrich-all")
         assert resp.status_code == 200
@@ -276,7 +292,7 @@ class TestEnrichAll:
 
     def test_already_enriched_entries_skipped(self, client):
         tc, mock_db = client
-        enriched = make_entry()  # has phonetics set
+        enriched = make_entry()  # has phonetics in data
         mock_db.get_entries.return_value = [enriched]
         resp = tc.post("/entries/enrich-all")
         assert resp.json()["queued"] == 0

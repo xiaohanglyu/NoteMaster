@@ -130,14 +130,24 @@ class EntryType(str, Enum):
     OCR = "ocr"
 
 
+class EntryData(BaseModel):
+    phonetics: Optional[str] = None
+    translation: Optional[str] = None
+    context_note: Optional[str] = None
+    examples: list[str] = []
+    tenses: list[str] = []
+    word_forms: list[str] = []
+    root: Optional[str] = None
+    synonyms: list[str] = []
+    derivatives: list[str] = []
+
+
 class Entry(BaseModel):
     id: str
     text: str
     source_type: EntryType = EntryType.MANUAL
     source_ref: Optional[str] = None
-    phonetics: Optional[str] = None
-    examples: list[str] = []
-    context_note: Optional[str] = None
+    data: EntryData = EntryData()
     weight: float = 1.0
     created_at: datetime
     updated_at: datetime
@@ -161,6 +171,38 @@ class PronunciationResult(BaseModel):
     heard: str
     match: bool
     score: float
+
+
+# ---------------------------------------------------------------------------
+# Inbox
+# ---------------------------------------------------------------------------
+
+class InboxItem(BaseModel):
+    id: str
+    content: str
+    tags: list[str] = []
+    created_at: datetime
+    processed_at: Optional[datetime] = None
+
+    @property
+    def is_pending(self) -> bool:
+        return self.processed_at is None
+
+
+_INBOX_TYPES = {"english", "concept", "question", "unknown"}
+
+
+class InboxClassification(BaseModel):
+    item_type: str
+    reasoning: str
+    preview: dict
+
+    @field_validator("item_type")
+    @classmethod
+    def valid_type(cls, v: str) -> str:
+        if v not in _INBOX_TYPES:
+            raise ValueError(f"item_type must be one of {_INBOX_TYPES}")
+        return v
 
 
 # ---------------------------------------------------------------------------

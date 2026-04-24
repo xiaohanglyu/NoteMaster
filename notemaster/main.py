@@ -5,16 +5,17 @@ from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, Form, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Annotated
 from notemaster import books, ai, stt, importer, ocr
 from notemaster.db import Database
 from notemaster.models import (
     Book, Concept, ConceptEdge, RelationType, ConceptWithPriority,
     EvaluationResult, StudySession, Score,
-    Entry, EntryType, PronunciationResult,
+    Entry, EntryData, EntryType, PronunciationResult,
     Application, ApplicationStatus, ApplicationRound,
     InterviewQuestion, QuestionType, QuestionSource, QuestionReviewRecord,
+    InboxItem, InboxClassification,
 )
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
@@ -441,18 +442,31 @@ class CreateEntryRequest(BaseModel):
     text: str
     source_type: EntryType = EntryType.MANUAL
     source_ref: Optional[str] = None
-    context_note: Optional[str] = None
 
 
 class UpdateEntryRequest(BaseModel):
     text: Optional[str] = None
-    phonetics: Optional[str] = None
-    examples: Optional[list[str]] = None
-    context_note: Optional[str] = None
+    data: Optional[EntryData] = None
 
 
 class RecordEntryReviewRequest(BaseModel):
     mastery_score: Score
+
+
+class EnrichExtraRequest(BaseModel):
+    fields: list[str]
+
+    @field_validator("fields")
+    @classmethod
+    def fields_not_empty(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("fields must not be empty")
+        return v
+
+
+class BatchEnrichRequest(BaseModel):
+    entry_ids: list[str]
+    fields: list[str]
 
 
 def _bg_enrich(entry_id: str, db: Database):
@@ -461,12 +475,40 @@ def _bg_enrich(entry_id: str, db: Database):
         if entry is None:
             return
         result = ai.enrich_entry(entry)
-        # Only set context_note from AI if user hasn't written one manually
-        context_note = None if entry.context_note else result.get("context_note")
-        db.update_entry(entry_id, phonetics=result.get("phonetics"),
-                        examples=result.get("examples"), context_note=context_note)
+        new_data = EntryData(
+            phonetics=result.get("phonetics"),
+            translation=result.get("translation"),
+            examples=result.get("examples") or [],
+            context_note=result.get("context_note") if not entry.data.context_note else entry.data.context_note,
+        )
+        db.update_entry(entry_id, data=new_data)
     except Exception:
         pass
+
+
+def _bg_enrich_extra(entry_id: str, fields: list[str], db: Database):
+    try:
+        entry = db.get_entry(entry_id)
+        if entry is None:
+            return
+        result = ai.enrich_entry_extra(entry, fields)
+        db.update_entry(entry_id, data=EntryData(**{k: v for k, v in result.items() if v is not None}))
+    except Exception:
+        pass
+
+
+@app.post("/entries/batch-enrich")
+def batch_enrich_entries(req: BatchEnrichRequest, background_tasks: BackgroundTasks, db: Database = Depends(get_db)):
+    if not req.entry_ids:
+        raise HTTPException(status_code=400, detail="entry_ids must not be empty")
+    if not req.fields:
+        raise HTTPException(status_code=400, detail="fields must not be empty")
+    queued = 0
+    for eid in req.entry_ids:
+        if db.get_entry(eid) is not None:
+            background_tasks.add_task(_bg_enrich_extra, eid, req.fields, db)
+            queued += 1
+    return {"queued": queued}
 
 
 @app.post("/entries", response_model=Entry)
@@ -476,7 +518,6 @@ def create_entry(req: CreateEntryRequest, background_tasks: BackgroundTasks, db:
         text=req.text,
         source_type=req.source_type,
         source_ref=req.source_ref,
-        context_note=req.context_note,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -487,7 +528,7 @@ def create_entry(req: CreateEntryRequest, background_tasks: BackgroundTasks, db:
 
 @app.post("/entries/enrich-all")
 def enrich_all_entries(background_tasks: BackgroundTasks, db: Database = Depends(get_db)):
-    pending = [e for e in db.get_entries() if not e.phonetics]
+    pending = [e for e in db.get_entries() if not e.data.phonetics]
     for e in pending:
         background_tasks.add_task(_bg_enrich, e.id, db)
     return {"queued": len(pending)}
@@ -507,16 +548,30 @@ async def entry_answer_voice(
     return ai.check_pronunciation(entry, transcript)
 
 
+@app.post("/entries/{entry_id}/enrich/extra", response_model=Entry)
+def enrich_entry_extra(entry_id: str, req: EnrichExtraRequest, db: Database = Depends(get_db)):
+    entry = db.get_entry(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    result = ai.enrich_entry_extra(entry, req.fields)
+    merged = EntryData(**{k: v for k, v in result.items() if v is not None})
+    updated = db.update_entry(entry_id, data=merged)
+    return updated
+
+
 @app.post("/entries/{entry_id}/enrich", response_model=Entry)
 def enrich_entry(entry_id: str, db: Database = Depends(get_db)):
     entry = db.get_entry(entry_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
     result = ai.enrich_entry(entry)
-    return db.update_entry(entry_id,
-                           phonetics=result.get("phonetics"),
-                           examples=result.get("examples"),
-                           context_note=result.get("context_note"))
+    new_data = EntryData(
+        phonetics=result.get("phonetics"),
+        translation=result.get("translation"),
+        examples=result.get("examples") or [],
+        context_note=result.get("context_note") if not entry.data.context_note else entry.data.context_note,
+    )
+    return db.update_entry(entry_id, data=new_data)
 
 
 @app.get("/entries/next", response_model=Entry)
@@ -542,13 +597,7 @@ def get_entry(entry_id: str, db: Database = Depends(get_db)):
 
 @app.patch("/entries/{entry_id}", response_model=Entry)
 def update_entry(entry_id: str, req: UpdateEntryRequest, db: Database = Depends(get_db)):
-    entry = db.update_entry(
-        entry_id,
-        text=req.text,
-        phonetics=req.phonetics,
-        examples=req.examples,
-        context_note=req.context_note,
-    )
+    entry = db.update_entry(entry_id, text=req.text, data=req.data)
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
     return entry
@@ -982,6 +1031,132 @@ async def import_image(
         entries.append(entry)
 
     return entries
+
+
+# ---------------------------------------------------------------------------
+# Inbox
+# ---------------------------------------------------------------------------
+
+_INBOX_ROUTE_TYPES = {"english", "concept", "question"}
+
+
+class CreateInboxItemRequest(BaseModel):
+    content: str
+
+
+class UpdateInboxItemRequest(BaseModel):
+    content: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+
+class RouteInboxRequest(BaseModel):
+    item_type: str
+
+    @field_validator("item_type")
+    @classmethod
+    def valid_route_type(cls, v: str) -> str:
+        if v not in _INBOX_ROUTE_TYPES:
+            raise ValueError(f"item_type must be one of {_INBOX_ROUTE_TYPES}")
+        return v
+
+
+@app.post("/inbox", response_model=InboxItem)
+def create_inbox_item(req: CreateInboxItemRequest, db: Database = Depends(get_db)):
+    item = InboxItem(
+        id=str(uuid.uuid4()),
+        content=req.content,
+        created_at=datetime.now(),
+    )
+    return db.create_inbox_item(item)
+
+
+@app.get("/inbox", response_model=list[InboxItem])
+def list_inbox_items(pending_only: bool = False, db: Database = Depends(get_db)):
+    return db.get_inbox_items(pending_only=pending_only)
+
+
+@app.get("/inbox/pending-count")
+def inbox_pending_count(db: Database = Depends(get_db)):
+    return {"count": db.get_inbox_pending_count()}
+
+
+@app.patch("/inbox/{item_id}", response_model=InboxItem)
+def update_inbox_item(item_id: str, req: UpdateInboxItemRequest, db: Database = Depends(get_db)):
+    item = db.update_inbox_item(item_id, content=req.content, tags=req.tags)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Inbox item not found")
+    return item
+
+
+@app.delete("/inbox/{item_id}")
+def delete_inbox_item(item_id: str, db: Database = Depends(get_db)):
+    ok = db.delete_inbox_item(item_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Inbox item not found")
+    return True
+
+
+@app.post("/inbox/{item_id}/classify", response_model=InboxClassification)
+def classify_inbox(item_id: str, db: Database = Depends(get_db)):
+    item = db.get_inbox_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Inbox item not found")
+    return ai.classify_inbox_item(item)
+
+
+@app.post("/inbox/{item_id}/route")
+def route_inbox_item(
+    item_id: str,
+    req: RouteInboxRequest,
+    background_tasks: BackgroundTasks,
+    db: Database = Depends(get_db),
+):
+    item = db.get_inbox_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Inbox item not found")
+
+    created_id: Optional[str] = None
+
+    if req.item_type == "english":
+        entry = Entry(
+            id=str(uuid.uuid4()),
+            text=item.content,
+            source_type=EntryType.MANUAL,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+        db.create_entry(entry)
+        background_tasks.add_task(_bg_enrich, entry.id, db)
+        created_id = entry.id
+
+    elif req.item_type == "concept":
+        from notemaster.models import Concept as _Concept
+        concept = _Concept(
+            id=str(uuid.uuid4()),
+            title=item.content[:80],
+            summary=item.content,
+            book_id="",
+            highlight_ids=[],
+            weight=1.0,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+        db.create_concept(concept)
+        created_id = concept.id
+
+    elif req.item_type == "question":
+        question = InterviewQuestion(
+            id=str(uuid.uuid4()),
+            question=item.content,
+            q_type=QuestionType.OTHER,
+            source=QuestionSource.MOCK,
+            created_at=datetime.now(),
+        )
+        db.create_question(question)
+        created_id = question.id
+
+    db.mark_inbox_processed(item_id)
+    return {"routed_to": req.item_type, "created_id": created_id}
 
 
 # Serve frontend — must be mounted after all API routes
