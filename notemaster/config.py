@@ -16,7 +16,9 @@ AI_CONTEXT_WINDOW = int(os.getenv("AI_CONTEXT_WINDOW", "128000"))
 # Derived: tokens reserved for prompt + tool schemas + response headroom
 _SYNTHESIS_OVERHEAD_TOKENS = 8000
 _TOKENS_PER_HIGHLIGHT = 300
-SYNTHESIS_BATCH_SIZE = max(
-    5,
-    (AI_CONTEXT_WINDOW - _SYNTHESIS_OVERHEAD_TOKENS) // (_TOKENS_PER_HIGHLIGHT * 4),
+_batch_override = os.getenv("SYNTHESIS_BATCH_SIZE")
+SYNTHESIS_BATCH_SIZE = (
+    int(_batch_override)
+    if _batch_override
+    else max(5, (AI_CONTEXT_WINDOW - _SYNTHESIS_OVERHEAD_TOKENS) // (_TOKENS_PER_HIGHLIGHT * 4))
 )

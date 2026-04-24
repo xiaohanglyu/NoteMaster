@@ -53,6 +53,7 @@ class Concept(BaseModel):
     book_id: str
     highlight_ids: list[str]
     weight: float
+    questions: list[str] = []
     created_at: datetime
     updated_at: datetime
 

@@ -31,11 +31,53 @@ def get_db() -> Database:
     return _db
 
 
+_synthesis_status: dict = {
+    "running": False,
+    "phase": "idle",       # idle | phase1 | phase2 | done | error
+    "batch_current": 0,
+    "batch_total": 0,
+    "concepts_created": 0,
+    "batch_errors": 0,
+    "last_error": None,
+    "edges_created": 0,
+}
+
+
+def _run_synthesis_bg(book_id: str):
+    global _synthesis_status
+    _synthesis_status = {
+        "running": True, "phase": "phase1",
+        "batch_current": 0, "batch_total": 0,
+        "concepts_created": 0, "batch_errors": 0,
+        "last_error": None, "edges_created": 0,
+    }
+
+    def on_progress(phase, batch_current, batch_total, concepts_created, error=None):
+        _synthesis_status["phase"] = phase
+        _synthesis_status["batch_current"] = batch_current
+        _synthesis_status["batch_total"] = batch_total
+        _synthesis_status["concepts_created"] = concepts_created
+        if error:
+            _synthesis_status["batch_errors"] += 1
+            _synthesis_status["last_error"] = error
+
+    try:
+        result = ai.synthesize(book_id=book_id, db=get_db(), on_progress=on_progress)
+        _synthesis_status["edges_created"] = result.get("edges", 0)
+        _synthesis_status["phase"] = "done"
+    except Exception as e:
+        _synthesis_status["phase"] = "error"
+        _synthesis_status["last_error"] = str(e)
+    finally:
+        _synthesis_status["running"] = False
+
+
 # --- Request / Response models ---
 
 class SyncRequest(BaseModel):
     asset_id: str
     book_title: str
+    sections: Optional[list[str]] = None
 
 
 class SyncResponse(BaseModel):
@@ -61,6 +103,7 @@ class AnswerTextRequest(BaseModel):
 class ConceptUpdateRequest(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
+    weight: Optional[float] = None
 
 
 class RecordReviewRequest(BaseModel):
@@ -91,6 +134,11 @@ def get_books(db: Database = Depends(get_db)):
     return db.get_books()
 
 
+@app.get("/apple-books")
+def apple_books():
+    return books.list_apple_books()
+
+
 # --- Sync & Synthesize ---
 
 @app.post("/sync", response_model=SyncResponse)
@@ -111,11 +159,12 @@ def sync(req: SyncRequest, db: Database = Depends(get_db)):
     from notemaster.models import HighlightColor
     highlights = books.get_highlights(
         asset_id=req.asset_id, book_id=book.id, book_title=book.title,
+        sections=req.sections or None,
     )
     entries_synced = 0
     for h in highlights:
-        db.save_highlight(h)
-        if h.color in (HighlightColor.YELLOW, HighlightColor.BLUE):
+        if h.color == HighlightColor.YELLOW:
+            # Yellow = English expression; goes to vocabulary entries only, not concept graph
             entry = Entry(
                 id=str(uuid.uuid4()),
                 text=h.text,
@@ -126,14 +175,35 @@ def sync(req: SyncRequest, db: Database = Depends(get_db)):
             )
             db.create_entry(entry)
             entries_synced += 1
+        else:
+            db.save_highlight(h)
 
+    db.record_sync(book.id, highlights_synced=len(highlights),
+                   sections=req.sections or None, book_title=book.title)
     return SyncResponse(synced=len(highlights), entries_synced=entries_synced, book_id=book.id)
 
 
-@app.post("/synthesize", response_model=SynthesizeResponse)
-def synthesize(req: SynthesizeRequest, db: Database = Depends(get_db)):
-    result = ai.synthesize(book_id=req.book_id, db=db)
-    return SynthesizeResponse(**result)
+@app.get("/sync/history")
+def sync_history(book_id: Optional[str] = None, db: Database = Depends(get_db)):
+    return db.get_sync_history(book_id=book_id)
+
+
+@app.get("/apple-books/{asset_id}/sections")
+def apple_book_sections(asset_id: str):
+    return books.get_highlight_sections(asset_id)
+
+
+@app.post("/synthesize")
+def synthesize(req: SynthesizeRequest, background_tasks: BackgroundTasks):
+    if _synthesis_status["running"]:
+        raise HTTPException(status_code=409, detail="Synthesis already running")
+    background_tasks.add_task(_run_synthesis_bg, req.book_id)
+    return {"started": True, "book_id": req.book_id}
+
+
+@app.get("/synthesize/status")
+def synthesis_status():
+    return _synthesis_status
 
 
 # --- Concepts ---
@@ -175,10 +245,17 @@ def get_concept(concept_id: str, db: Database = Depends(get_db)):
 
 @app.patch("/concepts/{concept_id}", response_model=Concept)
 def update_concept(concept_id: str, req: ConceptUpdateRequest, db: Database = Depends(get_db)):
-    concept = db.update_concept(concept_id, title=req.title, summary=req.summary)
+    concept = db.update_concept(concept_id, title=req.title, summary=req.summary, weight=req.weight)
     if concept is None:
         raise HTTPException(status_code=404, detail="Concept not found")
     return concept
+
+
+@app.delete("/concepts/{concept_id}", status_code=204)
+def delete_concept(concept_id: str, db: Database = Depends(get_db)):
+    deleted = db.delete_concept(concept_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Concept not found")
 
 
 @app.post("/concepts/{concept_id}/review")
@@ -291,23 +368,43 @@ async def answer_voice(
 
 # --- Graph ---
 
-@app.get("/graph", response_model=GraphResponse)
-def graph(book_id: Optional[str] = None, db: Database = Depends(get_db)):
+@app.get("/graph/books")
+def graph_books(db: Database = Depends(get_db)):
+    return [{"id": b.id, "title": b.title} for b in db.get_books()]
+
+
+@app.get("/graph")
+def graph(book_id: Optional[str] = None, include_questions: bool = False, db: Database = Depends(get_db)):
     concepts = db.get_concepts(book_id=book_id)
     edges = db.get_edges()
-    # Filter edges to only those between concepts in this book
     concept_ids = {c.id for c in concepts}
-    return GraphResponse(
-        nodes=[
-            {"id": c.id, "title": c.title, "weight": c.weight, "book_id": c.book_id}
-            for c in concepts
-        ],
-        edges=[
-            {"from": e.from_concept_id, "to": e.to_concept_id, "relation": e.relation.value}
-            for e in edges
-            if e.from_concept_id in concept_ids and e.to_concept_id in concept_ids
-        ],
-    )
+
+    nodes = [
+        {"id": c.id, "title": c.title, "weight": c.weight, "book_id": c.book_id, "node_type": "concept"}
+        for c in concepts
+    ]
+    filtered_edges = [
+        {"from": e.from_concept_id, "to": e.to_concept_id, "relation": e.relation.value}
+        for e in edges
+        if e.from_concept_id in concept_ids and e.to_concept_id in concept_ids
+    ]
+
+    if include_questions:
+        questions = db.get_questions()
+        for q in questions:
+            linked = db.get_question_concepts(q.id)
+            linked_in_view = [c for c in linked if c.id in concept_ids]
+            if linked_in_view or not book_id:
+                nodes.append({
+                    "id": q.id,
+                    "title": q.question[:60],
+                    "q_type": q.q_type.value,
+                    "node_type": "question",
+                })
+                for c in linked_in_view if book_id else linked:
+                    filtered_edges.append({"from": c.id, "to": q.id, "relation": "tested_by"})
+
+    return {"nodes": nodes, "edges": filtered_edges}
 
 
 @app.post("/graph/edges")
@@ -364,8 +461,10 @@ def _bg_enrich(entry_id: str, db: Database):
         if entry is None:
             return
         result = ai.enrich_entry(entry)
+        # Only set context_note from AI if user hasn't written one manually
+        context_note = None if entry.context_note else result.get("context_note")
         db.update_entry(entry_id, phonetics=result.get("phonetics"),
-                        examples=result.get("examples"), context_note=result.get("context_note"))
+                        examples=result.get("examples"), context_note=context_note)
     except Exception:
         pass
 
@@ -453,6 +552,13 @@ def update_entry(entry_id: str, req: UpdateEntryRequest, db: Database = Depends(
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
     return entry
+
+
+@app.delete("/entries/{entry_id}", status_code=204)
+def delete_entry(entry_id: str, db: Database = Depends(get_db)):
+    deleted = db.delete_entry(entry_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Entry not found")
 
 
 @app.post("/entries/{entry_id}/review")
@@ -708,6 +814,16 @@ def create_question(req: CreateQuestionRequest, db: Database = Depends(get_db)):
     return _question_to_dict(q)
 
 
+class ExtractQuestionsRequest(BaseModel):
+    text: Annotated[str, Field(min_length=1)]
+
+
+@app.post("/questions/extract")
+def extract_questions_from_text(req: ExtractQuestionsRequest):
+    """Use AI to extract Q&A pairs from a transcript or markdown text."""
+    return ai.extract_questions(req.text)
+
+
 @app.post("/questions/import")
 def import_questions(questions: list[CreateQuestionRequest], db: Database = Depends(get_db)):
     objs = [
@@ -752,6 +868,41 @@ def delete_question(question_id: str, db: Database = Depends(get_db)):
     if db.get_question(question_id) is None:
         raise HTTPException(status_code=404, detail="Question not found")
     db.delete_question(question_id)
+
+
+@app.get("/questions/{question_id}/concepts")
+def get_question_concepts(question_id: str, db: Database = Depends(get_db)):
+    if db.get_question(question_id) is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    concepts = db.get_question_concepts(question_id)
+    return [{"id": c.id, "title": c.title, "book_id": c.book_id} for c in concepts]
+
+
+class LinkConceptRequest(BaseModel):
+    concept_id: str
+
+
+@app.post("/questions/{question_id}/concepts", status_code=201)
+def link_concept(question_id: str, req: LinkConceptRequest, db: Database = Depends(get_db)):
+    if db.get_question(question_id) is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    if db.get_concept(req.concept_id) is None:
+        raise HTTPException(status_code=404, detail="Concept not found")
+    db.link_question_concept(question_id, req.concept_id)
+    return {"question_id": question_id, "concept_id": req.concept_id}
+
+
+@app.delete("/questions/{question_id}/concepts/{concept_id}", status_code=204)
+def unlink_concept(question_id: str, concept_id: str, db: Database = Depends(get_db)):
+    db.unlink_question_concept(question_id, concept_id)
+
+
+@app.get("/concepts/{concept_id}/questions")
+def get_concept_questions(concept_id: str, db: Database = Depends(get_db)):
+    if db.get_concept(concept_id) is None:
+        raise HTTPException(status_code=404, detail="Concept not found")
+    questions = db.get_concept_questions(concept_id)
+    return [_question_to_dict(q) for q in questions]
 
 
 @app.post("/questions/{question_id}/review")

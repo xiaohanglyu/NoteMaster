@@ -1,40 +1,70 @@
 # NoteMaster
 
-A local-first study system that turns Apple Books highlights into a knowledge graph, then drives structured interview preparation and English learning sessions — powered by a self-hosted AI.
+A local-first study system that turns Apple Books highlights, interview questions, and job applications into a unified knowledge graph — then drives structured spaced-repetition sessions, powered by a self-hosted AI.
 
 ## Motivation
 
-Reading technical books is easy. Retaining concepts well enough to explain them in a senior engineering interview is hard. NoteMaster bridges that gap by pulling highlights directly from Apple Books, using AI to synthesize them into a connected knowledge graph, and then driving active recall sessions — with AI feedback on both technical depth and English expression.
+Reading technical books is easy. Retaining concepts well enough to explain them in a senior engineering interview is hard. NoteMaster bridges that gap by:
+
+1. Pulling highlights directly from Apple Books and using AI to synthesize them into a connected knowledge graph.
+2. Tracking job applications and interview questions alongside your notes so everything lives in one place.
+3. Linking interview questions to knowledge concepts — so you know exactly which chapters to revisit when a question trips you up.
+4. Driving active recall sessions with AI feedback on both technical depth and English expression.
 
 The backend runs on your Mac. The web UI is accessible from any device on the same local network — Mac, iPhone, or iPad — with no installation required on mobile devices.
 
 ## Features
 
-- **Knowledge graph** — AI synthesizes highlights into concept nodes and builds a directed graph of relationships (depends on, contrasts with, part of, example of)
-- **Weight-based review queue** — each concept carries a weight derived from its highlight coverage; weight rises when you struggle, falls when you master the concept, and drives how often it appears in review
-- **Session modes** — choose duration (5 / 10 / 20 min or custom) and focus area: concepts, English, mixed, or full interview simulation
-- **Voice or text input** — answer out loud or type; voice is transcribed locally on-device
-- **Dual AI feedback** — one evaluation grades technical accuracy and Senior Backend depth; another grades English grammar, vocabulary, and naturalness
-- **Spaced repetition** — SM-2 scheduling, modulated by concept weight so high-weight concepts resurface more frequently
-- **Streak and heatmap** — GitHub-style activity heatmap and daily streak counter to track consistency
+### Knowledge graph
+- AI synthesizes highlights into concept nodes and builds a directed graph of relationships (`depends_on`, `contrasts_with`, `part_of`, `example_of`)
+- Unified graph view across all books, or filtered per book
+- Interview question nodes overlaid on the graph — see at a glance which concepts a question tests
+
+### Spaced repetition
+- SM-2 scheduling for both concepts and interview questions
+- Concept weight derived from highlight coverage; weight rises when you struggle, falls when you master
+- Review priority = `weight × (1 + days overdue)`
+- Session modes: concepts, English, mixed, or full interview simulation
+
+### Interview preparation
+- Kanban board for tracking job applications (Applied → Phone → Technical → Onsite → Offer / Rejected)
+- Interview questions bank with type tags (Behavioral, System Design, Coding) and self-score dots
+- Drill down from a Kanban card into questions from a specific interview round
+- Link questions to concepts — concept pills appear on question cards; question nodes appear on the graph
+- SM-2 review mode for questions: grade Weak / Ok / Strong after each answer
+
+### English learning
+- Yellow highlights routed to English vocabulary and sentence pattern review
+- AI grades grammar, vocabulary, and naturalness alongside technical depth
+
+### Admin panel
+- Inline editing for concepts (title, summary, weight), applications, and questions
+- Delete with cascade — removing a concept removes its review history; removing an application removes its rounds
+
+### Import
+- Sync highlights from Apple Books via Asset ID
+- Import `.txt`, `.md`, or `.pdf` files as concepts
+- Migrate from a job-hunt JSON export: `python -m scripts.migrate_job_hunt <file>`
+
+### PWA
+- Installable on iPhone / iPad via "Add to Home Screen"
+- GitHub-style activity heatmap and daily streak counter
 
 ## How it works
 
 ```
-Apple Books highlights
+Apple Books highlights              Job-hunt JSON export
+        ↓                                   ↓
+   POST /sync                  scripts/migrate_job_hunt.py
+        ↓                                   ↓
+POST /synthesize               /applications + /questions
+        ↓                                   ↓
+ GET /session/next ←──── unified priority queue ────→ GET /questions/next
         ↓
-   POST /sync          — import highlights for a book
-        ↓
-POST /synthesize       — AI agentic loop: group highlights into concepts, build graph edges
-        ↓
- GET /session/next     — pick next concept by weight × urgency
-        ↓
-POST /answer/text|voice — evaluate answer, update weight, schedule next review
+POST /answer/text|voice  →  AI evaluation  →  SM-2 reschedule
 ```
 
 ## Knowledge graph
-
-Highlights are the raw signal; concepts are the knowledge units the review system operates on.
 
 ### Concept weight
 
@@ -44,9 +74,6 @@ Highlights are the raw signal; concepts are the knowledge units the review syste
 | After review | multiplied by mastery factor — score 1 → ×1.4 … score 5 → ×0.7 |
 | New highlights added on re-read | recalculated from updated highlight set |
 
-Higher weight → shorter SM-2 intervals → reviewed more often.
-Review priority = `weight × (1 + days overdue)`.
-
 ### Edge relation types
 
 | Relation | Meaning |
@@ -55,10 +82,9 @@ Review priority = `weight × (1 + days overdue)`.
 | `contrasts_with` | A and B differ in a meaningful way |
 | `part_of` | A is a component of B |
 | `example_of` | A is a concrete instance of B |
+| `tested_by` | concept A is tested by interview question B |
 
 ## Highlight color convention
-
-NoteMaster reads highlight color from Apple Books to route each item to the right learning track and set initial concept weight:
 
 | Color | Meaning | Weight factor |
 |-------|---------|--------------|
@@ -68,17 +94,58 @@ NoteMaster reads highlight color from Apple Books to route each item to the righ
 
 ## API reference
 
+### Books & highlights
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/books` | List synced books |
 | `POST` | `/sync` | Import highlights from Apple Books |
 | `POST` | `/synthesize` | AI synthesis: highlights → concepts + edges |
-| `GET` | `/session/next` | Next concept due for review |
+
+### Concepts
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/graph` | Knowledge graph (nodes + edges); `?book_id=` filters by book, `?include_questions=true` adds question nodes |
+| `GET` | `/graph/books` | List all books for graph selector |
+| `GET` | `/concepts/{id}` | Get concept |
+| `PATCH` | `/concepts/{id}` | Update title, summary, or weight |
+| `DELETE` | `/concepts/{id}` | Delete concept and review history |
+| `POST` | `/concepts/{id}/review` | Record review, reschedule |
+| `GET` | `/concepts/{id}/questions` | List questions linked to concept |
+
+### Session
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/session/next` | Next item due; `?include_questions=true` mixes in questions |
 | `GET` | `/session/queue` | Full priority queue |
 | `POST` | `/answer/text` | Submit text answer; get AI evaluation |
 | `POST` | `/answer/voice` | Submit voice answer; get AI evaluation |
-| `GET` | `/graph` | Knowledge graph (nodes + edges) |
 | `GET` | `/stats` | Streak, heatmap, study sessions |
+
+### Applications
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/applications` | List all applications |
+| `POST` | `/applications` | Create application |
+| `GET` | `/applications/{id}` | Get application |
+| `PATCH` | `/applications/{id}` | Update application |
+| `DELETE` | `/applications/{id}` | Delete application + rounds |
+| `POST` | `/applications/{id}/rounds` | Add interview round |
+| `PATCH` | `/applications/{id}/rounds/{rid}` | Update round |
+
+### Questions
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/questions` | List questions; `?q_type=`, `?due_only=true`, `?application_id=` |
+| `POST` | `/questions` | Create question |
+| `GET` | `/questions/next` | Next question due for SM-2 review |
+| `POST` | `/questions/import` | Bulk import |
+| `GET` | `/questions/{id}` | Get question |
+| `PATCH` | `/questions/{id}` | Update question |
+| `DELETE` | `/questions/{id}` | Delete question |
+| `POST` | `/questions/{id}/review` | Record SM-2 review (grade 1–3) |
+| `GET` | `/questions/{id}/concepts` | List linked concepts |
+| `POST` | `/questions/{id}/concepts` | Link concept to question |
+| `DELETE` | `/questions/{id}/concepts/{concept_id}` | Unlink concept |
 
 ## Tech stack
 
@@ -150,14 +217,6 @@ The Apple Books annotation database is located automatically — no path configu
 - Mac: [http://localhost:8000](http://localhost:8000)
 - iPhone / iPad: `http://<mac-local-ip>:8000` (same Wi-Fi)
 
-**Stop the server**
-
-```bash
-pkill -f "notemaster serve"
-```
-
-Or press `Ctrl+C` if running in the foreground.
-
 **Sync highlights from Apple Books**
 
 Find the asset ID for a book:
@@ -173,17 +232,15 @@ Then sync via the app's **Sync** button or the API:
 .venv/bin/python -m notemaster sync <asset_id> "<book title>"
 ```
 
-**Build the knowledge graph**
+**Migrate from job-hunt**
 
-After syncing, trigger AI synthesis to convert highlights into concepts and edges:
+Export your data from job-hunt (localStorage → JSON), then:
 
 ```bash
-curl -X POST http://localhost:8000/synthesize \
-  -H "Content-Type: application/json" \
-  -d '{"book_id": "<book_id returned by sync>"}'
+.venv/bin/python -m scripts.migrate_job_hunt path/to/export.json
+# dry run first:
+.venv/bin/python -m scripts.migrate_job_hunt path/to/export.json --dry-run
 ```
-
-The AI will group related highlights into concept nodes and link them with typed edges. This runs as an agentic loop — the model calls tools to read highlights, create concepts, and build edges until all highlights are processed.
 
 ## Privacy
 
@@ -196,22 +253,22 @@ The AI will group related highlights into concept nodes and link them with typed
 ```
 NoteMaster/
 ├── notemaster/
-│   ├── models.py       # Data models: Book, Highlight, Concept, ConceptEdge, ReviewRecord
+│   ├── models.py       # Pydantic models: Book, Concept, Application, InterviewQuestion, …
 │   ├── books.py        # Read highlights from Apple Books SQLite
 │   ├── stt.py          # mlx-whisper transcription
 │   ├── ai.py           # evaluate() + synthesize() agentic loop
-│   ├── tools.py        # AI tool schemas (SYNTHESIS_TOOLS, REVIEW_TOOLS) + ToolHandler
+│   ├── tools.py        # AI tool schemas + ToolHandler
 │   ├── session.py      # Session scheduling and spaced repetition
-│   ├── db.py           # App database: books, concepts, edges, reviews, stats
+│   ├── db.py           # SQLite: concepts, edges, reviews, applications, questions
 │   └── main.py         # FastAPI app and CLI entry point
 ├── frontend/
-│   └── index.html
+│   └── index.html      # Single-file PWA
 ├── tests/
-│   ├── fixtures/       # Test SQLite and sample audio
-│   ├── unit/
+│   ├── unit/           # 355+ unit tests, no external deps
 │   └── integration/
 ├── scripts/
-│   └── download_model.py
+│   ├── download_model.py
+│   └── migrate_job_hunt.py
 ├── data/               # gitignored
 ├── .env.example
 ├── requirements.txt
@@ -235,25 +292,29 @@ This project is built test-first. Every new behaviour is written as a failing te
 
 | File | What it covers |
 |------|---------------|
-| `test_models.py` | Pydantic validation — field types, ranges, required fields |
-| `test_books.py` | Apple Books SQLite reader — color mapping, filtering, deleted highlights |
-| `test_db.py` | Database layer — Books, Highlights, Concepts, Edges, weight helpers, review scheduling, study sessions |
-| `test_tools.py` | AI tool schemas — required params, ToolHandler dispatch, weight side-effects per tool call |
-| `test_ai.py` | AI evaluation — prompt content, JSON parsing, markdown code block handling |
-| `test_session.py` | Highlight-level session filtering — focus area routing, card selection modes |
-| `test_main.py` | FastAPI endpoints — status codes, request validation, mock DB/AI wiring |
+| `test_models.py` | Pydantic validation |
+| `test_books.py` | Apple Books SQLite reader |
+| `test_db.py` | Concepts, edges, weight helpers, review scheduling |
+| `test_tools.py` | AI tool schemas and ToolHandler dispatch |
+| `test_ai.py` | AI evaluation and prompt content |
+| `test_session.py` | Session filtering and card selection |
+| `test_main.py` | FastAPI endpoints |
+| `test_job_hunt_db.py` | Applications and questions CRUD + SM-2 |
+| `test_applications_api.py` | Applications API |
+| `test_questions_api.py` | Questions API |
+| `test_unified_queue.py` | Mixed review queue across note types |
+| `test_question_concept_links.py` | Question ↔ Concept link DB and API |
+| `test_unified_graph.py` | Graph endpoint with question nodes |
+| `test_migrate_job_hunt.py` | Migration script |
 
 **Running tests:**
 
 ```bash
 # All unit tests (fast, no external deps)
-pytest tests/unit/
+.venv/bin/pytest tests/unit/
 
 # Single file
-pytest tests/unit/test_tools.py -v
-
-# Integration tests (requires AI server + Apple Books)
-pytest -m integration
+.venv/bin/pytest tests/unit/test_questions_api.py -v
 ```
 
 **TDD workflow for new features:**

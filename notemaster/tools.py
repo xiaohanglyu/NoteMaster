@@ -82,6 +82,14 @@ SYNTHESIS_TOOLS: list[dict] = [
                         "description": "IDs of highlights that belong to this concept",
                     },
                     "book_id": {"type": "string", "description": "ID of the source book"},
+                    "questions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "3 varied review questions about this concept — "
+                            "different angles: definition, example, trade-off, contrast, application."
+                        ),
+                    },
                 },
                 "required": ["title", "summary", "highlight_ids", "book_id"],
             },
@@ -239,6 +247,7 @@ class ToolHandler:
         summary: str,
         highlight_ids: list[str],
         book_id: str,
+        questions: list[str] | None = None,
     ) -> dict:
         highlights = self.db.get_highlights(book_id=book_id)
         color_map = {h.id: h.color.value for h in highlights}
@@ -253,6 +262,7 @@ class ToolHandler:
             book_id=book_id,
             highlight_ids=highlight_ids,
             weight=weight,
+            questions=questions or [],
             created_at=now,
             updated_at=now,
         )

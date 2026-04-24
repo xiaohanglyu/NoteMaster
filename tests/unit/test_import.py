@@ -60,13 +60,11 @@ class TestHighlightRouting:
         assert entry_arg.text == h.text
         assert entry_arg.source_type == EntryType.HIGHLIGHT
 
-    def test_blue_highlight_creates_entry(self, client):
+    def test_blue_highlight_does_not_create_entry(self, client):
         tc, mock_db = client
         h = make_highlight(HighlightColor.BLUE)
         self._do_sync(tc, [h])
-        created = mock_db.create_entry.call_args_list
-        assert len(created) == 1
-        assert created[0].args[0].source_type == EntryType.HIGHLIGHT
+        mock_db.create_entry.assert_not_called()
 
     def test_green_highlight_does_not_create_entry(self, client):
         tc, mock_db = client
@@ -96,9 +94,9 @@ class TestHighlightRouting:
         resp = self._do_sync(tc, highlights)
         assert resp.status_code == 200
         assert "entries_synced" in resp.json()
-        assert resp.json()["entries_synced"] == 2
+        assert resp.json()["entries_synced"] == 1  # only yellow
 
-    def test_multiple_yellow_and_blue_all_get_entries(self, client):
+    def test_multiple_yellow_all_get_entries(self, client):
         tc, mock_db = client
         highlights = [make_highlight(HighlightColor.YELLOW) for _ in range(3)]
         self._do_sync(tc, highlights)

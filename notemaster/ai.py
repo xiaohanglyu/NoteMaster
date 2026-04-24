@@ -60,8 +60,12 @@ reflect that ambiguity in the summary — do not resolve it with outside knowled
 
 Your task:
 1. Group semantically related highlights into concepts
-2. Call create_concept for each group — the summary must be built exclusively
-   from the highlight text, written clearly and completely
+2. Call create_concept for each group with:
+   - summary: built exclusively from the highlight text, written clearly and completely
+   - questions: exactly 3 varied review questions a student or interviewer might ask
+     about this concept. Cover different angles — e.g. definition, concrete example,
+     trade-off, contrast with a related concept, or real-world application.
+     Write them as natural English questions.
 3. Every highlight in this batch must be assigned to exactly one concept
 
 Guidelines:
@@ -132,7 +136,7 @@ def evaluate(
         raise ValueError(f"invalid response from AI: {raw!r}") from exc
 
 
-def synthesize(book_id: str, db, client: OpenAI | None = None) -> dict:
+def synthesize(book_id: str, db, client: OpenAI | None = None, on_progress=None) -> dict:
     """Two-phase synthesis: batched concept creation then edge linking.
 
     Phase 1: highlights are split into batches of SYNTHESIS_BATCH_SIZE.
@@ -140,8 +144,15 @@ def synthesize(book_id: str, db, client: OpenAI | None = None) -> dict:
              inline and calls create_concept / update_concept to persist them.
     Phase 2: a single fresh conversation lists all created concept titles and
              summaries and calls link_concepts to build the edge graph.
+
+    on_progress(phase, batch_current, batch_total, concepts_created, error):
+        called after each batch and phase transition.
     """
     from notemaster.tools import SYNTHESIS_TOOLS, ToolHandler
+
+    def _progress(phase, batch_current, batch_total, concepts_created, error=None):
+        if on_progress:
+            on_progress(phase, batch_current, batch_total, concepts_created, error)
 
     if client is None:
         client = _get_client()
@@ -159,6 +170,8 @@ def synthesize(book_id: str, db, client: OpenAI | None = None) -> dict:
 
     # --- Phase 1: batched concept extraction ---
     highlights = db.get_highlights(book_id=book_id, unprocessed_only=True)
+    total_batches = max(1, (len(highlights) + SYNTHESIS_BATCH_SIZE - 1) // SYNTHESIS_BATCH_SIZE)
+    batch_errors = 0
 
     for batch_index in range(0, max(1, len(highlights)), SYNTHESIS_BATCH_SIZE):
         batch = highlights[batch_index: batch_index + SYNTHESIS_BATCH_SIZE]
@@ -166,8 +179,9 @@ def synthesize(book_id: str, db, client: OpenAI | None = None) -> dict:
             break
 
         batch_num = batch_index // SYNTHESIS_BATCH_SIZE + 1
-        total_batches = (len(highlights) + SYNTHESIS_BATCH_SIZE - 1) // SYNTHESIS_BATCH_SIZE
         batch_text = _format_highlights(batch)
+        concepts_so_far = len(db.get_concepts(book_id=book_id))
+        _progress("phase1", batch_num, total_batches, concepts_so_far)
 
         messages = [
             {"role": "system", "content": _PHASE1_SYSTEM},
@@ -183,10 +197,17 @@ def synthesize(book_id: str, db, client: OpenAI | None = None) -> dict:
             },
         ]
 
-        _run_tool_loop(client, messages, phase1_tools, handler)
+        try:
+            _run_tool_loop(client, messages, phase1_tools, handler)
+        except Exception as e:
+            batch_errors += 1
+            _progress("phase1", batch_num, total_batches,
+                      len(db.get_concepts(book_id=book_id)), error=str(e))
 
     # --- Phase 2: edge creation ---
     concepts = db.get_concepts(book_id=book_id)
+    _progress("phase2", 0, 1, len(concepts))
+
     if len(concepts) >= 2:
         concepts_text = _format_concepts(concepts)
 
@@ -203,11 +224,15 @@ def synthesize(book_id: str, db, client: OpenAI | None = None) -> dict:
             },
         ]
 
-        _run_tool_loop(client, messages, phase2_tools, handler)
+        try:
+            _run_tool_loop(client, messages, phase2_tools, handler)
+        except Exception as e:
+            _progress("phase2", 1, 1, len(concepts), error=str(e))
 
     concepts_final = db.get_concepts(book_id=book_id)
     edges = db.get_edges()
-    return {"concepts": len(concepts_final), "edges": len(edges)}
+    _progress("done", total_batches, total_batches, len(concepts_final))
+    return {"concepts": len(concepts_final), "edges": len(edges), "batch_errors": batch_errors}
 
 
 def _run_tool_loop(
@@ -253,6 +278,56 @@ def _run_tool_loop(
                 "tool_call_id": tc.id,
                 "content": json.dumps(result, default=str),
             })
+
+
+_EXTRACT_SYSTEM = """\
+You are an interview coach. Extract all interview questions and answers from the provided text.
+The text may be a transcript, markdown notes, or any informal format.
+
+Rules:
+- Extract every distinct question, even if phrased as "Tell me about..." or "Walk me through..."
+- For each question, include the answer if one is present in the text; otherwise leave answer empty
+- Classify each question:
+  - "behavioral" — past experience, STAR stories, "Tell me about a time..."
+  - "system_design" — architecture, scalability, design decisions
+  - "coding" — algorithms, data structures, implementation
+  - "other" — general, culture fit, compensation, etc.
+- Do not invent or infer answers beyond what the text contains
+
+Respond ONLY with a JSON array:
+[{"question": "...", "answer": "...", "q_type": "behavioral|system_design|coding|other"}, ...]
+
+If no questions are found, return [].
+"""
+
+
+def extract_questions(text: str, client: OpenAI | None = None) -> list[dict]:
+    if client is None:
+        client = _get_client()
+    completion = client.chat.completions.create(
+        model=AI_MODEL,
+        messages=[
+            {"role": "system", "content": _EXTRACT_SYSTEM},
+            {"role": "user", "content": text},
+        ],
+        temperature=0.1,
+    )
+    raw = completion.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+        raw = raw.rsplit("```", 1)[0].strip()
+    try:
+        items = json.loads(raw)
+        return [
+            {
+                "question": item.get("question", ""),
+                "answer": item.get("answer", ""),
+                "q_type": item.get("q_type", "other"),
+            }
+            for item in items if item.get("question")
+        ]
+    except Exception as exc:
+        raise ValueError(f"invalid extract response: {raw!r}") from exc
 
 
 _ENRICH_SYSTEM = """\

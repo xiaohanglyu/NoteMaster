@@ -80,6 +80,7 @@ class Database:
                 summary     TEXT NOT NULL,
                 book_id     TEXT NOT NULL,
                 weight      REAL NOT NULL DEFAULT 1.0,
+                questions   TEXT NOT NULL DEFAULT '[]',
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL,
                 FOREIGN KEY (book_id) REFERENCES books(id)
@@ -163,6 +164,14 @@ class Database:
                 FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS question_concept_links (
+                question_id TEXT NOT NULL,
+                concept_id  TEXT NOT NULL,
+                PRIMARY KEY (question_id, concept_id),
+                FOREIGN KEY (question_id) REFERENCES interview_questions(id) ON DELETE CASCADE,
+                FOREIGN KEY (concept_id)  REFERENCES concepts(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS interview_questions (
                 id              TEXT PRIMARY KEY,
                 question        TEXT NOT NULL,
@@ -181,7 +190,51 @@ class Database:
                 created_at      TEXT NOT NULL,
                 FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE SET NULL
             );
+
+            CREATE TABLE IF NOT EXISTS sync_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id         TEXT NOT NULL,
+                book_title      TEXT NOT NULL DEFAULT '',
+                highlights_synced INTEGER NOT NULL DEFAULT 0,
+                sections        TEXT,
+                synced_at       TEXT NOT NULL
+            );
         """)
+
+    # --- Sync log ---
+
+    def record_sync(self, book_id: str, highlights_synced: int, sections: Optional[list] = None,
+                    book_title: str = "") -> None:
+        import json
+        self.conn.execute(
+            "INSERT INTO sync_log (book_id, book_title, highlights_synced, sections, synced_at) VALUES (?,?,?,?,?)",
+            (book_id, book_title, highlights_synced,
+             json.dumps(sections) if sections is not None else None,
+             datetime.now().isoformat()),
+        )
+        self.conn.commit()
+
+    def get_sync_history(self, book_id: Optional[str] = None) -> list[dict]:
+        import json
+        if book_id:
+            rows = self.conn.execute(
+                "SELECT id, book_id, book_title, highlights_synced, sections, synced_at "
+                "FROM sync_log WHERE book_id = ? ORDER BY synced_at DESC", (book_id,)
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT id, book_id, book_title, highlights_synced, sections, synced_at "
+                "FROM sync_log ORDER BY synced_at DESC"
+            ).fetchall()
+        result = []
+        for row in rows:
+            result.append({
+                "id": row[0], "book_id": row[1], "book_title": row[2],
+                "highlights_synced": row[3],
+                "sections": json.loads(row[4]) if row[4] else None,
+                "synced_at": row[5],
+            })
+        return result
 
     # --- Books ---
 
@@ -257,14 +310,15 @@ class Database:
     # --- Concepts ---
 
     def create_concept(self, concept: Concept) -> Concept:
+        import json as _json
         now = concept.created_at.isoformat()
         self.conn.execute(
             """
-            INSERT INTO concepts (id, title, summary, book_id, weight, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO concepts (id, title, summary, book_id, weight, questions, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (concept.id, concept.title, concept.summary, concept.book_id,
-             concept.weight, now, now),
+             concept.weight, _json.dumps(concept.questions), now, now),
         )
         for h_id in concept.highlight_ids:
             self.conn.execute(
@@ -279,8 +333,11 @@ class Database:
         concept_id: str,
         title: Optional[str] = None,
         summary: Optional[str] = None,
+        weight: Optional[float] = None,
+        questions: Optional[list[str]] = None,
         add_highlight_ids: Optional[list[str]] = None,
     ) -> Optional[Concept]:
+        import json as _json
         updates = []
         params: list = []
         now = datetime.now().isoformat()
@@ -291,6 +348,12 @@ class Database:
         if summary is not None:
             updates.append("summary = ?")
             params.append(summary)
+        if weight is not None:
+            updates.append("weight = ?")
+            params.append(weight)
+        if questions is not None:
+            updates.append("questions = ?")
+            params.append(_json.dumps(questions))
 
         if updates:
             updates.append("updated_at = ?")
@@ -316,6 +379,11 @@ class Database:
 
         self.conn.commit()
         return self.get_concept(concept_id)
+
+    def delete_concept(self, concept_id: str) -> bool:
+        cur = self.conn.execute("DELETE FROM concepts WHERE id = ?", (concept_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
 
     def get_concept(self, concept_id: str) -> Optional[Concept]:
         row = self.conn.execute(
@@ -574,6 +642,11 @@ class Database:
         )
         self.conn.commit()
         return self.get_entry(entry_id)
+
+    def delete_entry(self, entry_id: str) -> bool:
+        cur = self.conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
 
     def record_entry_review(self, entry_id: str, mastery_score: int) -> EntryReviewRecord:
         entry = self.get_entry(entry_id)
@@ -839,6 +912,7 @@ class Database:
         return self.get_question(question_id)
 
     def delete_question(self, question_id: str):
+        self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute(
             "DELETE FROM interview_questions WHERE id = ?", (question_id,)
         )
@@ -852,6 +926,44 @@ class Database:
                 self.create_question(q)
                 imported += 1
         return imported
+
+    # --- Question-Concept Links ---
+
+    def link_question_concept(self, question_id: str, concept_id: str):
+        self.conn.execute(
+            "INSERT OR IGNORE INTO question_concept_links (question_id, concept_id) VALUES (?, ?)",
+            (question_id, concept_id),
+        )
+        self.conn.commit()
+
+    def unlink_question_concept(self, question_id: str, concept_id: str):
+        self.conn.execute(
+            "DELETE FROM question_concept_links WHERE question_id = ? AND concept_id = ?",
+            (question_id, concept_id),
+        )
+        self.conn.commit()
+
+    def get_question_concepts(self, question_id: str) -> list[Concept]:
+        rows = self.conn.execute(
+            """
+            SELECT c.* FROM concepts c
+            JOIN question_concept_links l ON c.id = l.concept_id
+            WHERE l.question_id = ?
+            """,
+            (question_id,),
+        ).fetchall()
+        return [self._row_to_concept(r) for r in rows]
+
+    def get_concept_questions(self, concept_id: str) -> list[InterviewQuestion]:
+        rows = self.conn.execute(
+            """
+            SELECT q.* FROM interview_questions q
+            JOIN question_concept_links l ON q.id = l.question_id
+            WHERE l.concept_id = ?
+            """,
+            (concept_id,),
+        ).fetchall()
+        return [_row_to_question(r) for r in rows]
 
     def get_next_due_question(self) -> Optional[InterviewQuestion]:
         now = datetime.now().isoformat()
@@ -923,10 +1035,12 @@ class Database:
         return [r["color"] for r in rows]
 
     def _row_to_concept(self, row: sqlite3.Row) -> Concept:
+        import json as _json
         h_rows = self.conn.execute(
             "SELECT highlight_id FROM concept_highlights WHERE concept_id = ?",
             (row["id"],),
         ).fetchall()
+        raw_q = row["questions"] if "questions" in row.keys() else "[]"
         return Concept(
             id=row["id"],
             title=row["title"],
@@ -934,6 +1048,7 @@ class Database:
             book_id=row["book_id"],
             highlight_ids=[r["highlight_id"] for r in h_rows],
             weight=row["weight"],
+            questions=_json.loads(raw_q or "[]"),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )

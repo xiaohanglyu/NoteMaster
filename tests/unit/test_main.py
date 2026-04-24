@@ -116,6 +116,63 @@ class TestSync:
         assert resp.status_code == 422
 
 
+class TestSyncColorRouting:
+    """Yellow highlights → entries only (not knowledge graph). Green/Blue → highlights table."""
+
+    def _make_highlight(self, color, id="h-1"):
+        from notemaster.models import Highlight, HighlightColor
+        return Highlight(id=id, text="some text", color=color,
+                         book_id="book-1", book_title="DDIA")
+
+    def test_yellow_not_saved_to_highlights_table(self, client):
+        tc, mock_db = client
+        from notemaster.models import HighlightColor
+        yellow = self._make_highlight(HighlightColor.YELLOW)
+        with patch("notemaster.main.books.get_highlights", return_value=[yellow]):
+            tc.post("/sync", json={"asset_id": "asset-ddia", "book_title": "DDIA"})
+        mock_db.save_highlight.assert_not_called()
+
+    def test_yellow_saved_as_entry(self, client):
+        tc, mock_db = client
+        from notemaster.models import HighlightColor
+        yellow = self._make_highlight(HighlightColor.YELLOW)
+        with patch("notemaster.main.books.get_highlights", return_value=[yellow]):
+            tc.post("/sync", json={"asset_id": "asset-ddia", "book_title": "DDIA"})
+        mock_db.create_entry.assert_called_once()
+        entry_arg = mock_db.create_entry.call_args[0][0]
+        assert entry_arg.text == "some text"
+
+    def test_green_saved_to_highlights_table_not_entry(self, client):
+        tc, mock_db = client
+        from notemaster.models import HighlightColor
+        green = self._make_highlight(HighlightColor.GREEN)
+        with patch("notemaster.main.books.get_highlights", return_value=[green]):
+            tc.post("/sync", json={"asset_id": "asset-ddia", "book_title": "DDIA"})
+        mock_db.save_highlight.assert_called_once()
+        mock_db.create_entry.assert_not_called()
+
+    def test_blue_saved_to_highlights_table(self, client):
+        tc, mock_db = client
+        from notemaster.models import HighlightColor
+        blue = self._make_highlight(HighlightColor.BLUE)
+        with patch("notemaster.main.books.get_highlights", return_value=[blue]):
+            tc.post("/sync", json={"asset_id": "asset-ddia", "book_title": "DDIA"})
+        mock_db.save_highlight.assert_called_once()
+
+    def test_entries_synced_count_reflects_yellow_only(self, client):
+        tc, mock_db = client
+        from notemaster.models import HighlightColor
+        highlights = [
+            self._make_highlight(HighlightColor.YELLOW, "h-1"),
+            self._make_highlight(HighlightColor.GREEN, "h-2"),
+            self._make_highlight(HighlightColor.BLUE, "h-3"),
+        ]
+        with patch("notemaster.main.books.get_highlights", return_value=highlights):
+            resp = tc.post("/sync", json={"asset_id": "asset-ddia", "book_title": "DDIA"})
+        assert resp.json()["entries_synced"] == 1
+        assert mock_db.save_highlight.call_count == 2  # green + blue only
+
+
 # --- GET /session/next ---
 
 class TestSessionNext:
