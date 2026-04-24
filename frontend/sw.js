@@ -11,6 +11,12 @@ self.addEventListener("fetch", e => {
       new URL(e.request.url).pathname.startsWith("/session") ||
       new URL(e.request.url).pathname.startsWith("/answer") ||
       new URL(e.request.url).pathname.startsWith("/sync")) return;
+  // index.html: network first so code changes are always picked up immediately
+  const url = new URL(e.request.url);
+  if (url.pathname === "/" || url.pathname === "/index.html") {
+    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );

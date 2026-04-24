@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NoteMaster</title>
   <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/icon-192.png">
   <meta name="theme-color" content="#6366f1">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -21,8 +24,15 @@
 
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; min-height: 100dvh; }
 
+    /* Persistent header */
+    #app-header { position: sticky; top: 0; z-index: 50; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 10px 16px; gap: 10px; }
+    #app-header .logo { font-weight: 700; font-size: 15px; color: var(--text); text-decoration: none; cursor: pointer; letter-spacing: -0.3px; }
+    #app-header .header-spacer { flex: 1; }
+    #app-header .capture-btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    #app-header .capture-btn .capture-badge { background: #fff3; border-radius: 99px; padding: 1px 6px; font-size: 11px; font-weight: 700; }
+
     /* Layout */
-    .view { display: none; flex-direction: column; min-height: 100dvh; padding: var(--gap); max-width: 640px; margin: 0 auto; }
+    .view { display: none; flex-direction: column; min-height: calc(100dvh - 45px); padding: var(--gap); max-width: 640px; margin: 0 auto; }
     .view.active { display: flex; }
 
     /* Cards */
@@ -198,10 +208,28 @@
     .capture-row { display: flex; gap: 8px; }
     .capture-row .btn { flex: 1; }
 
-    .entry-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .entry-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; position: relative; }
+    .entry-card.selected { border-color: var(--accent); }
+    .entry-select-cb { position: absolute; top: 14px; right: 14px; width: 16px; height: 16px; cursor: pointer; display: none; }
+    .select-mode .entry-select-cb { display: block; }
     .entry-text { font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 4px; line-height: 1.4; }
     .entry-phonetics { font-size: 13px; color: var(--accent); margin-bottom: 6px; font-style: italic; letter-spacing: .3px; }
+    .entry-translation { font-size: 14px; color: var(--muted); margin-bottom: 6px; }
     .entry-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .entry-extended { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; display: grid; gap: 6px; }
+    .entry-ext-row { display: flex; gap: 8px; font-size: 13px; }
+    .entry-ext-label { color: var(--muted); min-width: 72px; flex-shrink: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; padding-top: 1px; }
+    .entry-ext-val { color: var(--text); line-height: 1.5; }
+    .inline-field { cursor: text; border-bottom: 1px dashed transparent; border-radius: 2px; transition: border-color .15s; display: inline; }
+    .inline-field:hover { border-bottom-color: var(--accent); }
+    .inline-field:focus { outline: none; border-bottom-color: var(--accent); background: #ffffff08; }
+    .btn-expand { background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 12px; padding: 4px 10px; cursor: pointer; flex-shrink: 0; }
+    .btn-expand:hover { border-color: var(--accent); color: var(--accent); }
+    #expand-popover { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; z-index: 200; box-shadow: 0 8px 32px #00000040; min-width: 220px; display: none; }
+    #expand-popover label { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 10px; cursor: pointer; }
+    #expand-popover .pop-actions { display: flex; gap: 8px; margin-top: 4px; }
+    #bulk-toolbar { display: none; position: sticky; top: 0; z-index: 10; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 10px; align-items: center; gap: 12px; }
+    #bulk-toolbar.visible { display: flex; }
     .entry-source { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
     .entry-source.manual  { border-color: #6366f140; color: var(--accent); }
     .entry-source.highlight { border-color: #eab30840; color: var(--yellow); }
@@ -283,13 +311,20 @@
   </style>
 </head>
 <body>
+<header id="app-header">
+  <span class="logo" onclick="goHome()">NoteMaster</span>
+  <div class="header-spacer"></div>
+  <button class="capture-btn" onclick="openInbox()">
+    + Capture <span id="header-capture-badge" class="capture-badge" style="display:none"></span>
+  </button>
+</header>
 
 <!-- ═══════════════════════ HOME VIEW ═══════════════════════ -->
 <div id="view-home" class="view active">
-  <div style="display:flex;align-items:center;margin-bottom:4px">
-    <h1>NoteMaster</h1>
-  </div>
   <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--gap)">
+    <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px;gap:5px" onclick="openInbox()">
+      Capture <span id="inbox-pending-badge" class="due-badge" style="display:none"></span>
+    </button>
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px;gap:5px" onclick="openEnglish()">
       English <span id="english-due-badge" class="due-badge" style="display:none"></span>
     </button>
@@ -298,9 +333,6 @@
       Questions <span id="questions-due-badge" class="due-badge" style="display:none"></span>
     </button>
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openGraphView()">Graph</button>
-    <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="document.getElementById('file-import-input').click()">Import</button>
-    <input type="file" id="file-import-input" accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf" style="display:none" onchange="importFile(this)">
-    <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openSync()">Sync</button>
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openAdmin()">Admin</button>
   </div>
 
@@ -488,8 +520,49 @@
     </div>
   </div>
 
+  <!-- Bulk toolbar -->
+  <div id="bulk-toolbar">
+    <span id="bulk-count" style="font-size:13px;color:var(--accent)">0 selected</span>
+    <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px;margin-left:auto" onclick="clearSelection()">Clear</button>
+    <button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openExpandPopover(null, true)">AI expand selected</button>
+  </div>
+
   <!-- Entry list -->
   <div id="entry-list"></div>
+</div>
+
+<!-- AI expand popover -->
+<div id="expand-popover">
+  <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px">Generate attributes</div>
+  <label><input type="checkbox" value="tenses"> Tenses / conjugations</label>
+  <label><input type="checkbox" value="word_forms"> Word forms (noun, adj…)</label>
+  <label><input type="checkbox" value="root"> Etymology / root</label>
+  <label><input type="checkbox" value="synonyms"> Synonyms</label>
+  <label><input type="checkbox" value="derivatives"> Derivatives</label>
+  <div class="pop-actions">
+    <button class="btn btn-primary" style="padding:8px 14px;font-size:13px" onclick="applyExpand()">Generate</button>
+    <button class="btn btn-secondary" style="padding:8px 14px;font-size:13px" onclick="closeExpandPopover()">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════ INBOX VIEW ═══════════════════════ -->
+<div id="view-inbox" class="view" style="flex-direction:column">
+  <div class="row" style="margin-bottom:var(--gap);flex-shrink:0">
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
+    <h2 style="margin:0 0 0 12px">Capture</h2>
+    <span id="inbox-view-pending" style="margin-left:8px;font-size:13px;color:var(--muted)"></span>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:var(--gap);flex-shrink:0">
+    <textarea id="inbox-input" placeholder="Paste or type anything…" rows="3"
+      style="flex:1;resize:vertical;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px;font-family:inherit;background:var(--card);color:var(--text)"
+      onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))addInboxItem()"></textarea>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button class="btn btn-primary" style="flex:1;padding:0 16px" onclick="addInboxItem()">Add</button>
+      <button class="btn btn-secondary" style="flex:0;padding:0 12px;font-size:18px;line-height:1" onclick="document.getElementById('capture-image-input').click()" title="Capture from image">📷</button>
+      <input type="file" id="capture-image-input" accept="image/*" style="display:none" onchange="captureImage(this)">
+    </div>
+  </div>
+  <div id="inbox-list" style="display:flex;flex-direction:column;gap:10px;overflow-y:auto"></div>
 </div>
 
 <!-- ═══════════════════════ JOBS VIEW ═══════════════════════ -->
@@ -712,6 +785,69 @@
   </div>
 </div>
 
+<!-- Entry edit modal -->
+<div id="entry-edit-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:300;padding:var(--gap);align-items:flex-start;justify-content:center;overflow-y:auto" onclick="if(event.target===this)closeEntryEditModal()">
+  <div class="card" style="width:100%;max-width:540px;margin:40px auto">
+    <div class="row" style="margin-bottom:var(--gap)">
+      <h2 style="margin:0;font-size:16px">Edit entry</h2>
+      <button onclick="closeEntryEditModal()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+
+    <div class="section-title" style="margin-bottom:4px">Text</div>
+    <input type="text" id="ee-text" style="margin-bottom:var(--gap)">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:var(--gap)">
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Phonetics</div>
+        <input type="text" id="ee-phonetics">
+      </div>
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Translation 中文</div>
+        <input type="text" id="ee-translation">
+      </div>
+    </div>
+
+    <div class="section-title" style="margin-bottom:4px">Context note</div>
+    <textarea id="ee-context-note" style="min-height:72px;margin-bottom:var(--gap)"></textarea>
+
+    <div class="section-title" style="margin-bottom:4px">Examples <span style="font-weight:400;color:var(--muted)">(one per line)</span></div>
+    <textarea id="ee-examples" style="min-height:72px;margin-bottom:var(--gap)"></textarea>
+
+    <div class="section-title" style="margin-bottom:12px;margin-top:4px;border-top:1px solid var(--border);padding-top:12px">Extended attributes</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:var(--gap)">
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Tenses <span style="font-weight:400;color:var(--muted)">(one per line)</span></div>
+        <textarea id="ee-tenses" style="min-height:60px"></textarea>
+      </div>
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Word forms <span style="font-weight:400;color:var(--muted)">(one per line)</span></div>
+        <textarea id="ee-word-forms" style="min-height:60px"></textarea>
+      </div>
+    </div>
+
+    <div class="section-title" style="margin-bottom:4px">Root / Etymology</div>
+    <input type="text" id="ee-root" style="margin-bottom:var(--gap)">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:var(--gap)">
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Synonyms <span style="font-weight:400;color:var(--muted)">(one per line)</span></div>
+        <textarea id="ee-synonyms" style="min-height:60px"></textarea>
+      </div>
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Derivatives <span style="font-weight:400;color:var(--muted)">(one per line)</span></div>
+        <textarea id="ee-derivatives" style="min-height:60px"></textarea>
+      </div>
+    </div>
+
+    <input type="hidden" id="ee-entry-id">
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="saveEntryEditModal()">Save</button>
+      <button class="btn btn-secondary" onclick="closeEntryEditModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════ ADMIN VIEW ═══════════════════════ -->
 <div id="view-admin" class="view">
   <div style="max-width:900px;width:100%;margin:0 auto">
@@ -726,6 +862,8 @@
       <button class="admin-tab" data-tab="english" onclick="switchAdminTab(this,'english')">English</button>
       <button class="admin-tab" data-tab="applications" onclick="switchAdminTab(this,'applications')">Applications</button>
       <button class="admin-tab" data-tab="questions" onclick="switchAdminTab(this,'questions')">Questions</button>
+      <button class="admin-tab" data-tab="import" onclick="switchAdminTab(this,'import')">Import</button>
+      <button class="admin-tab" data-tab="sync" onclick="switchAdminTab(this,'sync');openSync()">Sync</button>
     </div>
 
     <!-- Concepts tab -->
@@ -747,6 +885,35 @@
     <div id="admin-tab-questions" class="admin-panel" style="display:none">
       <div id="admin-questions-list"></div>
     </div>
+
+    <!-- Import tab -->
+    <div id="admin-tab-import" class="admin-panel" style="display:none">
+      <div style="display:flex;flex-direction:column;gap:16px;max-width:520px">
+        <div class="card">
+          <div style="font-weight:600;margin-bottom:6px">File → Concepts</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Import a .txt, .md, or .pdf file. Content is parsed and added as concept notes.</div>
+          <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="document.getElementById('admin-file-import-input').click()">Choose file…</button>
+          <input type="file" id="admin-file-import-input" accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf" style="display:none" onchange="importFile(this)">
+          <div id="admin-import-result" style="margin-top:8px;font-size:13px;color:var(--green)"></div>
+        </div>
+        <div class="card">
+          <div style="font-weight:600;margin-bottom:6px">Transcript → Questions</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Upload or paste an interview transcript. AI extracts questions and adds them to your question bank.</div>
+          <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="openExtractModal()">Open transcript importer</button>
+        </div>
+        <div class="card">
+          <div style="font-weight:600;margin-bottom:6px">Image → English Entry</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Upload a photo or screenshot. OCR extracts text and creates English vocabulary entries.</div>
+          <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="document.getElementById('admin-ocr-input').click()">Choose image…</button>
+          <input type="file" id="admin-ocr-input" accept="image/*" style="display:none" onchange="importImage(this)">
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync tab -->
+    <div id="admin-tab-sync" class="admin-panel" style="display:none">
+      <div style="font-size:13px;color:var(--muted)">Opening sync dialog…</div>
+    </div>
   </div>
 </div>
 
@@ -763,15 +930,20 @@
 </div>
 
 <!-- ═══════════════════════ SYNC MODAL ═══════════════════════ -->
-<div id="sync-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:100;padding:var(--gap);align-items:center">
+<div id="sync-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:100;padding:var(--gap);align-items:center" onclick="if(event.target===this)closeSync()">
   <div class="card" style="width:100%;max-width:440px;margin:auto">
-    <h2>Sync highlights</h2>
-    <div class="section-title" style="margin-bottom:6px">Choose a book from Apple Books</div>
+    <div style="display:flex;align-items:center;margin-bottom:12px">
+      <h2 style="margin:0">Sync highlights</h2>
+      <button onclick="closeSync()" style="margin-left:auto;background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted);line-height:1">×</button>
+    </div>
     <!-- Step 1: pick book -->
     <div id="sync-step-book">
       <div class="section-title" style="margin-bottom:6px">Choose a book from Apple Books</div>
       <div id="sync-book-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
         <div style="padding:12px;color:var(--muted);font-size:13px">Loading…</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="closeSync()">Cancel</button>
       </div>
     </div>
 
@@ -1753,35 +1925,66 @@ function parseContextNote(note) {
   return r;
 }
 
+function _d(e) { return e.data || {}; }
+
 function _entryParts(e) {
-  const u = e.context_note ? parseContextNote(e.context_note) : null;
-  const phonetics = e.phonetics
-    ? `<div class="entry-phonetics">${escHtml(e.phonetics)}</div>`
+  const d = _d(e);
+  const phonetics = d.phonetics
+    ? `<div class="entry-phonetics"><span class="inline-field" contenteditable="false" data-entry="${e.id}" data-field="phonetics" onblur="saveInlineField(this)" onkeydown="inlineKeydown(event,this)">${escHtml(d.phonetics)}</span></div>`
+    : "";
+  const translation = d.translation
+    ? `<div class="entry-translation"><span class="inline-field" contenteditable="false" data-entry="${e.id}" data-field="translation" onblur="saveInlineField(this)" onkeydown="inlineKeydown(event,this)">${escHtml(d.translation)}</span></div>`
     : "";
   const encounter = e.source_ref
     ? `<div class="entry-encounter"><span class="entry-encounter-label">My context</span>${escHtml(e.source_ref)}</div>`
     : "";
-  const examples = e.examples?.length
-    ? `<div class="entry-examples">${e.examples.map(ex => `<div class="entry-example">${escHtml(ex)}</div>`).join("")}</div>`
+  const examples = d.examples?.length
+    ? `<div class="entry-examples">${d.examples.map(ex => `<div class="entry-example">${escHtml(ex)}</div>`).join("")}</div>`
     : "";
-  return { phonetics, encounter, examples };
+  return { phonetics, translation, encounter, examples };
+}
+
+function _extendedHTML(e) {
+  const d = _d(e);
+  const rows = [];
+  const fmt = (label, val) => {
+    if (!val || (Array.isArray(val) && !val.length)) return "";
+    const text = Array.isArray(val) ? val.join(" · ") : val;
+    return `<div class="entry-ext-row"><span class="entry-ext-label">${label}</span><span class="entry-ext-val inline-field" contenteditable="false" data-entry="${e.id}" data-field="${label.toLowerCase().replace(/ /g,'_')}" onblur="saveInlineField(this)" onkeydown="inlineKeydown(event,this)">${escHtml(text)}</span></div>`;
+  };
+  rows.push(fmt("tenses", d.tenses));
+  rows.push(fmt("word_forms", d.word_forms));
+  rows.push(fmt("root", d.root));
+  rows.push(fmt("synonyms", d.synonyms));
+  rows.push(fmt("derivatives", d.derivatives));
+  const inner = rows.filter(Boolean).join("");
+  return inner ? `<div class="entry-extended">${inner}</div>` : "";
 }
 
 function entryCardHTML(e) {
-  const { phonetics, encounter, examples } = _entryParts(e);
-  const enrichBtn = !e.phonetics
+  const { phonetics, translation, encounter, examples } = _entryParts(e);
+  const extended = _extendedHTML(e);
+  const d = _d(e);
+  const enrichBtn = !d.phonetics
     ? `<button class="btn-enrich" onclick="enrichEntry('${e.id}')" title="AI enrich">✦ Enrich</button>`
+    : "";
+  const expandBtn = d.phonetics
+    ? `<button class="btn-expand" onclick="openExpandPopover('${e.id}', false)" title="AI expand">⊕ More</button>`
     : "";
   return `
     <div class="entry-card" id="ecard-${e.id}">
-      <div class="entry-text">${escHtml(e.text)}</div>
+      <input type="checkbox" class="entry-select-cb" data-id="${e.id}" onchange="toggleSelectEntry(this)">
+      <div class="entry-text"><span class="inline-field" contenteditable="false" data-entry="${e.id}" data-field="text" onblur="saveInlineField(this)" onkeydown="inlineKeydown(event,this)">${escHtml(e.text)}</span></div>
       ${phonetics}
+      ${translation}
       ${encounter}
       ${examples}
+      ${extended}
       <div class="entry-meta" style="margin-top:10px">
         <span class="entry-source ${e.source_type}">${e.source_type}</span>
         <button class="btn-tts" onclick="speakText('${escAttr(e.text)}')" title="Play pronunciation">🔊</button>
         ${enrichBtn}
+        ${expandBtn}
       </div>
     </div>`;
 }
@@ -1839,13 +2042,144 @@ async function enrichEntry(entryId) {
     const btn = document.querySelector(`#ecard-${entryId} .btn-enrich`);
     if (btn) { btn.textContent = "…"; btn.disabled = true; }
     const entry = await api("POST", `/entries/${entryId}/enrich`);
-    // Replace card with updated version
     const card = document.getElementById(`ecard-${entryId}`);
     if (card) card.outerHTML = entryCardHTML(entry);
   } catch (e) {
     alert("Enrich failed: " + e.message);
     await loadEntries();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Inline field editing
+// ---------------------------------------------------------------------------
+
+function inlineKeydown(event, el) {
+  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); el.blur(); }
+  if (event.key === "Escape") { el.dataset.original && (el.textContent = el.dataset.original); el.contentEditable = "false"; }
+}
+
+async function saveInlineField(el) {
+  el.contentEditable = "false";
+  const entryId = el.dataset.entry;
+  const field = el.dataset.field;
+  const val = el.textContent.trim();
+  if (val === (el.dataset.original || "")) return;
+
+  const isTopLevel = field === "text";
+  const payload = isTopLevel ? { text: val } : { data: { [field]: val } };
+
+  try {
+    const updated = await api("PATCH", `/entries/${entryId}`, payload);
+    const card = document.getElementById(`ecard-${entryId}`);
+    if (card) card.outerHTML = entryCardHTML(updated);
+  } catch (e) { alert("Save failed: " + e.message); }
+}
+
+document.addEventListener("click", e => {
+  const field = e.target.closest(".inline-field");
+  if (field) {
+    field.dataset.original = field.textContent;
+    field.contentEditable = "true";
+    field.focus();
+    const range = document.createRange();
+    range.selectNodeContents(field);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI expand popover
+// ---------------------------------------------------------------------------
+
+let _expandTargetId = null;
+let _expandBulkMode = false;
+
+function openExpandPopover(entryId, bulk) {
+  _expandTargetId = entryId;
+  _expandBulkMode = !!bulk;
+  const pop = document.getElementById("expand-popover");
+  pop.querySelectorAll("input[type=checkbox]").forEach(cb => cb.checked = false);
+  const anchor = bulk
+    ? document.getElementById("bulk-toolbar")
+    : document.getElementById(`ecard-${entryId}`);
+  const rect = anchor?.getBoundingClientRect() || { bottom: 100, left: 20 };
+  pop.style.top = (rect.bottom + window.scrollY + 8) + "px";
+  pop.style.left = Math.min(rect.left, window.innerWidth - 240) + "px";
+  pop.style.display = "block";
+}
+
+function closeExpandPopover() {
+  document.getElementById("expand-popover").style.display = "none";
+}
+
+async function applyExpand() {
+  const fields = [...document.querySelectorAll("#expand-popover input:checked")].map(cb => cb.value);
+  if (!fields.length) { alert("Select at least one attribute."); return; }
+  closeExpandPopover();
+
+  if (_expandBulkMode) {
+    const ids = [..._selectedEntryIds];
+    if (!ids.length) return;
+    try {
+      const r = await api("POST", "/entries/batch-enrich", { entry_ids: ids, fields });
+      clearSelection();
+      const banner = document.createElement("div");
+      banner.className = "card";
+      banner.style.cssText = "text-align:center;color:var(--green);padding:12px;margin-bottom:10px";
+      banner.textContent = `✓ Queued ${r.queued} entries`;
+      document.getElementById("entry-list").prepend(banner);
+      setTimeout(() => banner.remove(), 3000);
+    } catch (e) { alert("Batch enrich failed: " + e.message); }
+  } else {
+    try {
+      const btn = document.querySelector(`#ecard-${_expandTargetId} .btn-expand`);
+      if (btn) { btn.textContent = "…"; btn.disabled = true; }
+      const entry = await api("POST", `/entries/${_expandTargetId}/enrich/extra`, { fields });
+      const card = document.getElementById(`ecard-${_expandTargetId}`);
+      if (card) card.outerHTML = entryCardHTML(entry);
+    } catch (e) { alert("Expand failed: " + e.message); }
+  }
+}
+
+document.addEventListener("click", e => {
+  if (!e.target.closest("#expand-popover") && !e.target.closest(".btn-expand") && !e.target.closest("#bulk-toolbar")) {
+    closeExpandPopover();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch selection
+// ---------------------------------------------------------------------------
+
+const _selectedEntryIds = new Set();
+
+function toggleSelectEntry(cb) {
+  const id = cb.dataset.id;
+  if (cb.checked) _selectedEntryIds.add(id);
+  else _selectedEntryIds.delete(id);
+  const card = document.getElementById(`ecard-${id}`);
+  card?.classList.toggle("selected", cb.checked);
+  _updateBulkToolbar();
+}
+
+function clearSelection() {
+  _selectedEntryIds.clear();
+  document.querySelectorAll(".entry-select-cb:checked").forEach(cb => {
+    cb.checked = false;
+    document.getElementById(`ecard-${cb.dataset.id}`)?.classList.remove("selected");
+  });
+  _updateBulkToolbar();
+}
+
+function _updateBulkToolbar() {
+  const toolbar = document.getElementById("bulk-toolbar");
+  const count = _selectedEntryIds.size;
+  toolbar.classList.toggle("visible", count > 0);
+  document.getElementById("bulk-count").textContent = `${count} selected`;
+  document.getElementById("entry-list").classList.toggle("select-mode", count > 0);
 }
 
 async function toggleEntryRecording() {
@@ -1947,7 +2281,7 @@ async function startEntryReview() {
 
 function showEntryReviewCard(entry) {
   const list = document.getElementById("entry-list");
-  const { phonetics, encounter, examples } = _entryParts(entry);
+  const { phonetics, translation, encounter, examples } = _entryParts(entry);
 
   list.innerHTML = `
     <div class="card" id="entry-review-card">
@@ -2795,47 +3129,75 @@ async function loadAdminEntries() {
   try {
     const entries = await api("GET", "/entries");
     if (!entries.length) { el.innerHTML = `<div class="empty">No English entries</div>`; return; }
-    el.innerHTML = entries.map(e => `
+    el.innerHTML = entries.map(e => {
+      const d = e.data || {};
+      const pills = [
+        d.phonetics ? `<span style="color:var(--accent)">${escHtml(d.phonetics)}</span>` : "",
+        d.translation ? `<span>${escHtml(d.translation)}</span>` : "",
+        d.root ? `<span style="color:var(--muted)">⊙ ${escHtml(d.root)}</span>` : "",
+        d.tenses?.length ? `<span style="color:var(--muted)">${d.tenses.length} tenses</span>` : "",
+        d.synonyms?.length ? `<span style="color:var(--muted)">${d.synonyms.length} synonyms</span>` : "",
+      ].filter(Boolean).join(" · ");
+      return `
       <div class="admin-row" id="admin-e-row-${e.id}">
-        <div>
+        <div style="min-width:0">
           <div style="font-weight:600">${escHtml(e.text)}</div>
-          <div style="color:var(--muted);font-size:12px;margin-top:2px">${e.source_type}${e.phonetics ? " · " + escHtml(e.phonetics) : ""}</div>
-          ${e.context_note ? `<div style="color:var(--muted);font-size:12px;margin-top:2px">${escHtml(e.context_note.slice(0,80))}</div>` : ""}
+          <div style="font-size:12px;margin-top:3px;line-height:1.6">${e.source_type}${pills ? " · " + pills : ""}</div>
+          ${d.context_note ? `<div style="color:var(--muted);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(d.context_note.slice(0,100))}</div>` : ""}
         </div>
-        <div style="display:flex;gap:6px;flex-direction:column">
-          <button class="admin-edit-btn" onclick="toggleAdminEntryEdit('${e.id}')">Edit</button>
+        <div style="display:flex;gap:6px;flex-direction:column;flex-shrink:0">
+          <button class="admin-edit-btn" onclick="openEntryEditModal('${e.id}')">Edit</button>
           <button class="admin-edit-btn" style="color:var(--red);border-color:var(--red)" onclick="adminDeleteEntry('${e.id}')">Delete</button>
         </div>
-      </div>
-      <div id="admin-e-form-${e.id}" style="display:none" class="admin-inline-form">
-        <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--muted)">Text</label>
-          <input type="text" id="admin-e-text-${e.id}" value="${escHtml(e.text)}" style="margin-top:4px"></div>
-        <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--muted)">Phonetics</label>
-          <input type="text" id="admin-e-phonetics-${e.id}" value="${escHtml(e.phonetics||"")}" style="margin-top:4px"></div>
-        <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--muted)">Context note</label>
-          <textarea id="admin-e-context-${e.id}" style="min-height:60px;margin-top:4px">${escHtml(e.context_note||"")}</textarea></div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="adminSaveEntry('${e.id}')">Save</button>
-          <button class="btn btn-secondary" style="padding:8px 16px;font-size:13px" onclick="toggleAdminEntryEdit('${e.id}')">Cancel</button>
-        </div>
-      </div>
-    `).join("");
+      </div>`;
+    }).join("");
   } catch (err) { el.innerHTML = `<div class="empty">Failed to load</div>`; }
 }
 
-function toggleAdminEntryEdit(id) {
-  const form = document.getElementById(`admin-e-form-${id}`);
-  form.style.display = form.style.display === "none" ? "block" : "none";
+function _lines(arr) { return (arr || []).join("\n"); }
+function _parseLines(str) { return str.split("\n").map(s => s.trim()).filter(Boolean); }
+
+async function openEntryEditModal(id) {
+  const entry = await api("GET", `/entries/${id}`);
+  const d = entry.data || {};
+  document.getElementById("ee-entry-id").value = id;
+  document.getElementById("ee-text").value = entry.text;
+  document.getElementById("ee-phonetics").value = d.phonetics || "";
+  document.getElementById("ee-translation").value = d.translation || "";
+  document.getElementById("ee-context-note").value = d.context_note || "";
+  document.getElementById("ee-examples").value = _lines(d.examples);
+  document.getElementById("ee-tenses").value = _lines(d.tenses);
+  document.getElementById("ee-word-forms").value = _lines(d.word_forms);
+  document.getElementById("ee-root").value = d.root || "";
+  document.getElementById("ee-synonyms").value = _lines(d.synonyms);
+  document.getElementById("ee-derivatives").value = _lines(d.derivatives);
+  document.getElementById("entry-edit-modal").style.display = "flex";
 }
 
-async function adminSaveEntry(id) {
+function closeEntryEditModal() {
+  document.getElementById("entry-edit-modal").style.display = "none";
+}
+
+async function saveEntryEditModal() {
+  const id = document.getElementById("ee-entry-id").value;
+  const g = id => document.getElementById(id).value.trim();
   const payload = {
-    text: document.getElementById(`admin-e-text-${id}`).value.trim(),
-    phonetics: document.getElementById(`admin-e-phonetics-${id}`).value.trim() || null,
-    context_note: document.getElementById(`admin-e-context-${id}`).value.trim() || null,
+    text: g("ee-text") || undefined,
+    data: {
+      phonetics:    g("ee-phonetics") || null,
+      translation:  g("ee-translation") || null,
+      context_note: g("ee-context-note") || null,
+      examples:     _parseLines(g("ee-examples")),
+      tenses:       _parseLines(g("ee-tenses")),
+      word_forms:   _parseLines(g("ee-word-forms")),
+      root:         g("ee-root") || null,
+      synonyms:     _parseLines(g("ee-synonyms")),
+      derivatives:  _parseLines(g("ee-derivatives")),
+    },
   };
   try {
     await api("PATCH", `/entries/${id}`, payload);
+    closeEntryEditModal();
     await loadAdminEntries();
   } catch (err) { alert("Save failed: " + err.message); }
 }
@@ -2990,6 +3352,133 @@ async function adminDeleteQ(id) {
   } catch (e) { alert("Delete failed: " + e.message); }
 }
 
+// ═══════════════════════ INBOX ═══════════════════════
+
+async function openInbox() {
+  show("inbox");
+  await loadInboxItems();
+}
+
+async function loadInboxItems() {
+  try {
+    const items = await api("GET", "/inbox?pending_only=true");
+    renderInboxList(items);
+    updateInboxBadge(items.length);
+  } catch (e) { console.warn("Inbox unavailable:", e.message); }
+}
+
+async function updateInboxBadge(count) {
+  if (count === undefined) {
+    try {
+      const data = await api("GET", "/inbox/pending-count");
+      count = data.count;
+    } catch { count = 0; }
+  }
+  for (const id of ["inbox-pending-badge", "header-capture-badge"]) {
+    const badge = document.getElementById(id);
+    if (!badge) continue;
+    if (count > 0) { badge.textContent = count; badge.style.display = ""; }
+    else { badge.style.display = "none"; }
+  }
+  const viewBadge = document.getElementById("inbox-view-pending");
+  if (viewBadge) viewBadge.textContent = count > 0 ? `${count} pending` : "";
+}
+
+async function addInboxItem() {
+  const ta = document.getElementById("inbox-input");
+  const content = ta.value.trim();
+  if (!content) return;
+  try {
+    await api("POST", "/inbox", { content });
+    ta.value = "";
+    await loadInboxItems();
+  } catch (e) { alert("Failed: " + e.message); }
+}
+
+async function captureImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const btn = document.querySelector('[onclick="document.getElementById(\'capture-image-input\').click()"]');
+  const orig = btn ? btn.textContent : "";
+  if (btn) btn.textContent = "…";
+  try {
+    const form = new FormData();
+    form.append("image", file);
+    const r = await fetch("/import/image", { method: "POST", body: form });
+    if (!r.ok) throw new Error(await r.text());
+    const entries = await r.json();
+    if (entries.length === 0) { alert("No text found in image."); return; }
+    const combined = entries.map(e => e.text).join("\n");
+    await api("POST", "/inbox", { content: combined });
+    await loadInboxItems();
+  } catch (e) {
+    alert("Image capture failed: " + e.message);
+  } finally {
+    if (btn) btn.textContent = orig;
+    input.value = "";
+  }
+}
+
+async function deleteInboxItem(id) {
+  try {
+    await api("DELETE", `/inbox/${id}`);
+    await loadInboxItems();
+  } catch (e) { alert("Failed: " + e.message); }
+}
+
+async function classifyInboxItem(id) {
+  const card = document.getElementById("inbox-card-" + id);
+  const resultEl = card.querySelector(".inbox-classify-result");
+  resultEl.textContent = "Classifying…";
+  try {
+    const cls = await api("POST", `/inbox/${id}/classify`);
+    const typeLabel = { english: "English", concept: "Concept", question: "Question", unknown: "Unknown" }[cls.item_type] || cls.item_type;
+    resultEl.innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">AI suggests: <strong>${typeLabel}</strong> — ${cls.reasoning}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-primary" style="font-size:12px;padding:4px 10px" onclick="routeInboxItem('${id}','english')">→ English</button>
+        <button class="btn btn-primary" style="font-size:12px;padding:4px 10px" onclick="routeInboxItem('${id}','concept')">→ Concept</button>
+        <button class="btn btn-primary" style="font-size:12px;padding:4px 10px" onclick="routeInboxItem('${id}','question')">→ Question</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="routeInboxItem('${id}','${cls.item_type}')">Confirm suggestion</button>
+      </div>`;
+  } catch (e) {
+    resultEl.textContent = "Classification failed: " + e.message;
+  }
+}
+
+async function routeInboxItem(id, type) {
+  try {
+    await api("POST", `/inbox/${id}/route`, { item_type: type });
+    await loadInboxItems();
+  } catch (e) { alert("Failed: " + e.message); }
+}
+
+function renderInboxList(items) {
+  const el = document.getElementById("inbox-list");
+  if (!items.length) {
+    el.innerHTML = '<div class="card" style="text-align:center;color:var(--green);padding:20px">✓ All clear</div>';
+    return;
+  }
+  el.innerHTML = items.map(item => `
+    <div class="card" id="inbox-card-${item.id}" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:flex-start;gap:8px">
+        <div style="flex:1;font-size:14px;line-height:1.5;white-space:pre-wrap">${escHtml(item.content)}</div>
+        <button class="btn btn-secondary" style="flex-shrink:0;font-size:12px;padding:3px 8px" onclick="deleteInboxItem('${item.id}')">Dismiss</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="classifyInboxItem('${item.id}')">AI Classify</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="routeInboxItem('${item.id}','english')">→ English</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="routeInboxItem('${item.id}','concept')">→ Concept</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="routeInboxItem('${item.id}','question')">→ Question</button>
+      </div>
+      <div class="inbox-classify-result" style="font-size:13px"></div>
+    </div>`).join("");
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
 // ═══════════════════════ PWA ═══════════════════════
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -3005,6 +3494,7 @@ if ("speechSynthesis" in window) {
 }
 loadStats();
 api("GET", "/entries/next").then(e => updateEnglishBadges(e ? 1 : 0)).catch(() => {});
+updateInboxBadge();
 </script>
 </body>
 </html>
