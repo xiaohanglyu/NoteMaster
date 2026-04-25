@@ -75,14 +75,14 @@ class TestListQuestions:
         tc, mock_db = client
         tc.get("/questions?q_type=behavioral")
         mock_db.get_questions.assert_called_with(
-            q_type=QuestionType.BEHAVIORAL, source=None, application_id=None, due_only=False
+            q_type=QuestionType.BEHAVIORAL, source=None, category=None, application_id=None, due_only=False
         )
 
     def test_filter_due_only(self, client):
         tc, mock_db = client
         tc.get("/questions?due_only=true")
         mock_db.get_questions.assert_called_with(
-            q_type=None, source=None, application_id=None, due_only=True
+            q_type=None, source=None, category=None, application_id=None, due_only=True
         )
 
 

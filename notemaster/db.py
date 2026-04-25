@@ -8,7 +8,7 @@ from notemaster.models import (
     Entry, EntryData, EntryType, EntryReviewRecord, EntryWithPriority,
     Application, ApplicationStatus, ApplicationRound,
     InterviewQuestion, QuestionType, QuestionSource, QuestionReviewRecord,
-    InboxItem,
+    InboxItem, AIProvider,
 )
 
 _DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "notemaster.db"
@@ -49,6 +49,16 @@ class Database:
 
     def _migrate(self):
         import json as _json
+
+        # interview_questions: add category column if missing
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='interview_questions'"
+        ).fetchone()
+        if row and "category" not in row[0]:
+            self.conn.execute(
+                "ALTER TABLE interview_questions ADD COLUMN category TEXT NOT NULL DEFAULT 'interview'"
+            )
+            self.conn.commit()
 
         # review_records: old schema used highlight_id; new schema uses concept_id
         row = self.conn.execute(
@@ -216,6 +226,7 @@ class Database:
                 answer          TEXT,
                 q_type          TEXT NOT NULL DEFAULT 'other',
                 source          TEXT NOT NULL DEFAULT 'mock',
+                category        TEXT NOT NULL DEFAULT 'interview',
                 application_id  TEXT,
                 round           TEXT,
                 self_score      INTEGER NOT NULL DEFAULT 0,
@@ -244,6 +255,25 @@ class Database:
                 tags         TEXT NOT NULL DEFAULT '[]',
                 created_at   TEXT NOT NULL,
                 processed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS embeddings (
+                note_type  TEXT NOT NULL,
+                note_id    TEXT NOT NULL,
+                vector     TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (note_type, note_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_providers (
+                id            TEXT PRIMARY KEY,
+                name          TEXT NOT NULL,
+                provider_type TEXT NOT NULL,
+                base_url      TEXT,
+                api_key       TEXT,
+                model         TEXT NOT NULL,
+                is_active     INTEGER NOT NULL DEFAULT 0,
+                created_at    TEXT NOT NULL
             );
         """)
 
@@ -882,13 +912,13 @@ class Database:
         self.conn.execute(
             """
             INSERT INTO interview_questions
-                (id, question, answer, q_type, source, application_id, round,
+                (id, question, answer, q_type, source, category, application_id, round,
                  self_score, tags, notes, ef, interval, reps, next_review_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 q.id, q.question, q.answer, q.q_type.value, q.source.value,
-                q.application_id, q.round, q.self_score,
+                q.category.value, q.application_id, q.round, q.self_score,
                 json.dumps(q.tags), q.notes, q.ef, q.interval, q.reps,
                 q.next_review_at.isoformat() if q.next_review_at else None,
                 q.created_at.isoformat(),
@@ -907,6 +937,7 @@ class Database:
         self,
         q_type: Optional[QuestionType] = None,
         source: Optional[QuestionSource] = None,
+        category: Optional[str] = None,
         application_id: Optional[str] = None,
         due_only: bool = False,
     ) -> list[InterviewQuestion]:
@@ -917,6 +948,9 @@ class Database:
         if source:
             clauses.append("source = ?")
             params.append(source.value)
+        if category:
+            clauses.append("category = ?")
+            params.append(category)
         if application_id:
             clauses.append("application_id = ?")
             params.append(application_id)
@@ -1146,6 +1180,106 @@ class Database:
         ).fetchone()
         return row[0]
 
+    # ------------------------------------------------------------------
+    # Embeddings
+    # ------------------------------------------------------------------
+
+    def save_embedding(self, note_type: str, note_id: str, vector: list) -> None:
+        from notemaster.embeddings import serialize
+        self.conn.execute(
+            """INSERT INTO embeddings (note_type, note_id, vector, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(note_type, note_id) DO UPDATE SET vector=excluded.vector, updated_at=excluded.updated_at""",
+            (note_type, note_id, serialize(vector), datetime.now(tz=timezone.utc).replace(tzinfo=None).isoformat()),
+        )
+        self.conn.commit()
+
+    def get_related(self, note_type: str, note_id: str, limit: int = 5) -> list[dict]:
+        from notemaster.embeddings import deserialize, cosine_similarity
+        target_row = self.conn.execute(
+            "SELECT vector FROM embeddings WHERE note_type=? AND note_id=?",
+            (note_type, note_id),
+        ).fetchone()
+        if target_row is None:
+            return []
+        target = deserialize(target_row["vector"])
+        rows = self.conn.execute(
+            "SELECT note_type, note_id, vector FROM embeddings WHERE NOT (note_type=? AND note_id=?)",
+            (note_type, note_id),
+        ).fetchall()
+        scored = [
+            {"note_type": r["note_type"], "note_id": r["note_id"],
+             "score": cosine_similarity(target, deserialize(r["vector"]))}
+            for r in rows
+        ]
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:limit]
+
+    # --- AI Providers ---
+
+    def create_provider(self, provider: AIProvider) -> AIProvider:
+        self.conn.execute(
+            "INSERT INTO ai_providers (id, name, provider_type, base_url, api_key, model, is_active, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (provider.id, provider.name, provider.provider_type, provider.base_url,
+             provider.api_key, provider.model, 1 if provider.is_active else 0,
+             provider.created_at.isoformat()),
+        )
+        self.conn.commit()
+        return provider
+
+    def get_provider(self, provider_id: str) -> Optional[AIProvider]:
+        row = self.conn.execute(
+            "SELECT * FROM ai_providers WHERE id = ?", (provider_id,)
+        ).fetchone()
+        return self._row_to_provider(row) if row else None
+
+    def list_providers(self) -> list[AIProvider]:
+        rows = self.conn.execute(
+            "SELECT * FROM ai_providers ORDER BY created_at DESC"
+        ).fetchall()
+        return [self._row_to_provider(r) for r in rows]
+
+    def get_active_provider(self) -> Optional[AIProvider]:
+        row = self.conn.execute(
+            "SELECT * FROM ai_providers WHERE is_active = 1 LIMIT 1"
+        ).fetchone()
+        return self._row_to_provider(row) if row else None
+
+    def activate_provider(self, provider_id: str) -> None:
+        self.conn.execute("UPDATE ai_providers SET is_active = 0")
+        self.conn.execute("UPDATE ai_providers SET is_active = 1 WHERE id = ?", (provider_id,))
+        self.conn.commit()
+
+    def update_provider(self, provider_id: str, fields: dict) -> Optional[AIProvider]:
+        allowed = {"name", "base_url", "api_key", "model"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return self.get_provider(provider_id)
+        params = list(updates.values()) + [provider_id]
+        self.conn.execute(
+            f"UPDATE ai_providers SET {', '.join(f'{k} = ?' for k in updates)} WHERE id = ?",
+            params,
+        )
+        self.conn.commit()
+        return self.get_provider(provider_id)
+
+    def delete_provider(self, provider_id: str) -> None:
+        self.conn.execute("DELETE FROM ai_providers WHERE id = ?", (provider_id,))
+        self.conn.commit()
+
+    def _row_to_provider(self, row: sqlite3.Row) -> AIProvider:
+        return AIProvider(
+            id=row["id"],
+            name=row["name"],
+            provider_type=row["provider_type"],
+            base_url=row["base_url"],
+            api_key=row["api_key"],
+            model=row["model"],
+            is_active=bool(row["is_active"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
     def _row_to_inbox_item(self, row: sqlite3.Row) -> InboxItem:
         import json as _json
         return InboxItem(
@@ -1217,12 +1351,14 @@ def _row_to_round(row: sqlite3.Row) -> ApplicationRound:
 
 def _row_to_question(row: sqlite3.Row) -> InterviewQuestion:
     import json
+    from notemaster.models import QuestionCategory
     return InterviewQuestion(
         id=row["id"],
         question=row["question"],
         answer=row["answer"],
         q_type=QuestionType(row["q_type"]),
         source=QuestionSource(row["source"]),
+        category=QuestionCategory(row["category"]) if row["category"] else QuestionCategory.INTERVIEW,
         application_id=row["application_id"],
         round=row["round"],
         self_score=row["self_score"],

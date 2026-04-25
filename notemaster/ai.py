@@ -3,6 +3,7 @@ from difflib import SequenceMatcher
 from openai import OpenAI
 from notemaster.config import AI_BASE_URL, AI_MODEL, SYNTHESIS_BATCH_SIZE
 from notemaster.models import Concept, EvaluationResult, Entry, InboxClassification, InboxItem, PronunciationResult
+from notemaster.providers import OpenAICompatibleProvider, BaseProvider
 
 _EVALUATE_SYSTEM = """\
 You are a senior backend engineering interviewer and English writing coach.
@@ -90,6 +91,7 @@ Relation types:
 
 
 _default_client: OpenAI | None = None
+_default_provider: BaseProvider | None = None
 
 
 def _get_client() -> OpenAI:
@@ -99,33 +101,47 @@ def _get_client() -> OpenAI:
     return _default_client
 
 
+def _get_provider() -> BaseProvider:
+    """Return the active DB provider, or fall back to env-configured local provider."""
+    global _default_provider
+    try:
+        from notemaster.db import Database
+        from notemaster.providers import build_provider
+        db = Database()
+        active = db.get_active_provider()
+        if active:
+            return build_provider(
+                provider_type=active.provider_type,
+                model=active.model,
+                base_url=active.base_url,
+                api_key=active.api_key,
+            )
+    except Exception:
+        pass
+    if _default_provider is None:
+        _default_provider = OpenAICompatibleProvider(model=AI_MODEL, base_url=AI_BASE_URL)
+    return _default_provider
+
+
+def _provider_from_client(client) -> BaseProvider:
+    """Wrap a raw OpenAI client (used in tests) into a provider."""
+    return OpenAICompatibleProvider(model=AI_MODEL, client=client)
+
+
 def evaluate(
     concept: Concept,
     answer: str,
-    client: OpenAI | None = None,
+    client=None,
 ) -> EvaluationResult:
-    if client is None:
-        client = _get_client()
-
-    messages = [
-        {"role": "system", "content": _EVALUATE_SYSTEM},
-        {
-            "role": "user",
-            "content": _EVALUATE_USER.format(
-                title=concept.title,
-                summary=concept.summary,
-                answer=answer,
-            ),
-        },
-    ]
-
-    completion = client.chat.completions.create(
-        model=AI_MODEL,
-        messages=messages,
-        temperature=0.4,
+    provider = _provider_from_client(client) if client is not None else _get_provider()
+    user_msg = _EVALUATE_USER.format(
+        title=concept.title, summary=concept.summary, answer=answer,
     )
-
-    raw = completion.choices[0].message.content.strip()
+    raw = provider.complete(
+        _EVALUATE_SYSTEM,
+        [{"role": "user", "content": user_msg}],
+        temperature=0.4,
+    ).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[-1]
         raw = raw.rsplit("```", 1)[0].strip()
@@ -301,18 +317,9 @@ If no questions are found, return [].
 """
 
 
-def extract_questions(text: str, client: OpenAI | None = None) -> list[dict]:
-    if client is None:
-        client = _get_client()
-    completion = client.chat.completions.create(
-        model=AI_MODEL,
-        messages=[
-            {"role": "system", "content": _EXTRACT_SYSTEM},
-            {"role": "user", "content": text},
-        ],
-        temperature=0.1,
-    )
-    raw = completion.choices[0].message.content.strip()
+def extract_questions(text: str, client=None) -> list[dict]:
+    provider = _provider_from_client(client) if client is not None else _get_provider()
+    raw = provider.complete(_EXTRACT_SYSTEM, [{"role": "user", "content": text}], temperature=0.1).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[-1]
         raw = raw.rsplit("```", 1)[0].strip()
@@ -355,20 +362,13 @@ Respond ONLY with a JSON object:
 """
 
 
-def enrich_entry(entry: Entry, client: OpenAI | None = None) -> dict:
-    if client is None:
-        client = _get_client()
-
-    completion = client.chat.completions.create(
-        model=AI_MODEL,
-        messages=[
-            {"role": "system", "content": _ENRICH_SYSTEM},
-            {"role": "user", "content": f'Enrich this English expression: "{entry.text}"'},
-        ],
+def enrich_entry(entry: Entry, client=None) -> dict:
+    provider = _provider_from_client(client) if client is not None else _get_provider()
+    raw = provider.complete(
+        _ENRICH_SYSTEM,
+        [{"role": "user", "content": f'Enrich this English expression: "{entry.text}"'}],
         temperature=0.2,
-    )
-
-    raw = completion.choices[0].message.content.strip()
+    ).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[-1]
         raw = raw.rsplit("```", 1)[0].strip()
@@ -395,26 +395,16 @@ Respond ONLY with a JSON object containing exactly the requested keys.
 _EXTRA_FIELD_NAMES = {"tenses", "word_forms", "root", "synonyms", "derivatives"}
 
 
-def enrich_entry_extra(entry: Entry, fields: list[str], client: OpenAI | None = None) -> dict:
+def enrich_entry_extra(entry: Entry, fields: list[str], client=None) -> dict:
     if not fields:
         raise ValueError("fields must not be empty")
-    if client is None:
-        client = _get_client()
-
+    provider = _provider_from_client(client) if client is not None else _get_provider()
     field_list = ", ".join(fields)
-    completion = client.chat.completions.create(
-        model=AI_MODEL,
-        messages=[
-            {"role": "system", "content": _ENRICH_EXTRA_SYSTEM},
-            {"role": "user", "content": (
-                f'Word/phrase: "{entry.text}"\n'
-                f'Requested attributes: {field_list}'
-            )},
-        ],
+    raw = provider.complete(
+        _ENRICH_EXTRA_SYSTEM,
+        [{"role": "user", "content": f'Word/phrase: "{entry.text}"\nRequested attributes: {field_list}'}],
         temperature=0.2,
-    )
-
-    raw = completion.choices[0].message.content.strip()
+    ).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[-1]
         raw = raw.rsplit("```", 1)[0].strip()
@@ -447,6 +437,68 @@ def _format_concepts(concepts) -> str:
     return "\n\n".join(lines)
 
 
+_STUDY_SYSTEM = """\
+You are an expert technical interviewer and educator.
+
+Read the article below and generate {count} review questions that cover the key concepts.
+Each question must target ONE of these angles (mix them across questions):
+- Definition: "What is X and why does it exist?"
+- Comparison: "What are the tradeoffs between X and Y?"
+- When-to-use: "In what situation would you choose X?"
+
+For each question, write a complete, clear answer (3-5 sentences).
+Classify each question as: system_design | coding | other
+
+Respond ONLY with a JSON array — no markdown fences, no extra text:
+[{{"question":"...","answer":"...","q_type":"system_design|coding|other"}}]
+""".strip()
+
+_INTERVIEW_SYSTEM = """\
+You are a senior staff engineer conducting a technical interview.
+Your style: scenario-based, never abstract. You probe until you find the boundary of the candidate's knowledge.
+
+Read the article below and generate {count} interview questions.
+Rules:
+- Frame each question as a real scenario: "You are designing...", "You're on-call and...", "Your team needs..."
+- Write a model answer: 3-5 sentences, interview-quality English, concise and precise
+- Write 2-3 follow-up probes a senior interviewer would ask after a solid initial answer
+- Classify as: system_design | coding | other
+
+Respond ONLY with a JSON array — no markdown fences, no extra text:
+[{{"question":"...","answer":"...","q_type":"system_design|coding|other","follow_ups":["...","..."]}}]
+""".strip()
+
+_MAX_ARTICLE_CHARS = 12_000
+
+
+def generate_questions_from_article(
+    content: str,
+    mode: str = "study",
+    count: int = 6,
+    client=None,
+) -> list[dict]:
+    provider = _provider_from_client(client) if client is not None else _get_provider()
+    truncated = content[:_MAX_ARTICLE_CHARS]
+    system_template = _INTERVIEW_SYSTEM if mode == "interview" else _STUDY_SYSTEM
+    system_prompt = system_template.format(count=count)
+    raw = provider.complete(system_prompt, [{"role": "user", "content": truncated}], temperature=0.3).strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    try:
+        items = json.loads(raw)
+    except Exception as exc:
+        raise ValueError(f"invalid generate_questions response: {raw!r}") from exc
+    return [
+        {
+            "question": item.get("question", ""),
+            "answer": item.get("answer", ""),
+            "q_type": item.get("q_type", "other"),
+            "follow_ups": item.get("follow_ups", []),
+        }
+        for item in items
+    ]
+
+
 _CLASSIFY_SYSTEM = """\
 Classify the inbox item into one of: english, concept, question, unknown.
 Respond with JSON only — no markdown fences, no extra text:
@@ -462,18 +514,11 @@ For question: {"question": "...", "q_type": "behavioral|system_design|coding|oth
 For unknown: {}""".strip()
 
 
-def classify_inbox_item(item: InboxItem, client: OpenAI | None = None) -> InboxClassification:
-    if client is None:
-        client = _get_client()
-    completion = client.chat.completions.create(
-        model=AI_MODEL,
-        messages=[
-            {"role": "system", "content": _CLASSIFY_SYSTEM},
-            {"role": "user", "content": item.content},
-        ],
-        temperature=0.2,
-    )
-    raw = completion.choices[0].message.content.strip()
+def classify_inbox_item(item: InboxItem, client=None) -> InboxClassification:
+    provider = _provider_from_client(client) if client is not None else _get_provider()
+    raw = provider.complete(
+        _CLASSIFY_SYSTEM, [{"role": "user", "content": item.content}], temperature=0.2,
+    ).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     data = json.loads(raw)

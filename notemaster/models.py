@@ -253,12 +253,18 @@ class QuestionSource(str, Enum):
     MOCK = "mock"
 
 
+class QuestionCategory(str, Enum):
+    STUDY = "study"
+    INTERVIEW = "interview"
+
+
 class InterviewQuestion(BaseModel):
     id: str
     question: str
     answer: Optional[str] = None
     q_type: QuestionType = QuestionType.OTHER
     source: QuestionSource = QuestionSource.MOCK
+    category: QuestionCategory = QuestionCategory.INTERVIEW
     application_id: Optional[str] = None
     round: Optional[str] = None
     self_score: int = 0
@@ -279,3 +285,14 @@ class QuestionReviewRecord(BaseModel):
     interval: int
     reps: int
     ef: float
+
+
+class AIProvider(BaseModel):
+    id: str
+    name: str
+    provider_type: str  # 'openai_compatible' | 'anthropic'
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: str
+    is_active: bool = False
+    created_at: datetime

@@ -36,7 +36,7 @@
     .view.active { display: flex; }
 
     /* Cards */
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap); margin-bottom: var(--gap); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap); margin-bottom: var(--gap); color: var(--text); }
 
     /* Buttons */
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; border-radius: 8px; border: none; font-size: 15px; font-weight: 500; cursor: pointer; width: 100%; }
@@ -328,11 +328,8 @@
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px;gap:5px" onclick="openEnglish()">
       English <span id="english-due-badge" class="due-badge" style="display:none"></span>
     </button>
+    <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openTech()">Tech</button>
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openJobs()">Jobs</button>
-    <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px;gap:5px" onclick="openQuestions()">
-      Questions <span id="questions-due-badge" class="due-badge" style="display:none"></span>
-    </button>
-    <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openGraphView()">Graph</button>
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openAdmin()">Admin</button>
   </div>
 
@@ -425,7 +422,7 @@
 <!-- ═══════════════════════ GRAPH VIEW ═══════════════════════ -->
 <div id="view-graph" class="view" style="flex-direction:column">
   <div class="graph-toolbar">
-    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;flex-shrink:0" onclick="goHome()">← Home</button>
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;flex-shrink:0" onclick="openTech()">← Tech</button>
     <select id="graph-book-select" style="flex:1;min-width:0;margin:0;padding:8px 10px;font-size:13px" onchange="loadGraph()">
       <option value="">All books</option>
     </select>
@@ -489,6 +486,11 @@
         <div class="section-title">Linked questions</div>
         <div id="panel-questions"></div>
         <button class="btn btn-secondary" style="font-size:12px;padding:6px 10px;margin-top:8px" onclick="openQuestionsForConcept()">View all →</button>
+      </div>
+
+      <div id="panel-related-section" style="margin-top:16px">
+        <div class="section-title">Related</div>
+        <div id="panel-related" style="font-size:13px;color:var(--muted)">Loading…</div>
       </div>
     </div>
   </div>
@@ -558,7 +560,7 @@
       onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))addInboxItem()"></textarea>
     <div style="display:flex;flex-direction:column;gap:6px">
       <button class="btn btn-primary" style="flex:1;padding:0 16px" onclick="addInboxItem()">Add</button>
-      <button class="btn btn-secondary" style="flex:0;padding:0 12px;font-size:18px;line-height:1" onclick="document.getElementById('capture-image-input').click()" title="Capture from image">📷</button>
+      <button class="btn btn-secondary" style="flex:0;padding:0 12px;font-size:13px" onclick="document.getElementById('capture-image-input').click()" title="Extract text from image">Image</button>
       <input type="file" id="capture-image-input" accept="image/*" style="display:none" onchange="captureImage(this)">
     </div>
   </div>
@@ -570,7 +572,10 @@
   <div class="row" style="margin-bottom:var(--gap);flex-shrink:0">
     <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
     <h2 style="margin:0 0 0 12px">Jobs</h2>
-    <button class="btn btn-primary" style="width:auto;padding:8px 14px;font-size:13px;margin-left:auto" onclick="openJobForm()">+ Add</button>
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;gap:5px;margin-left:auto" onclick="openQuestions()">
+      Questions <span id="questions-due-badge" class="due-badge" style="display:none"></span>
+    </button>
+    <button class="btn btn-primary" style="width:auto;padding:8px 14px;font-size:13px" onclick="openJobForm()">+ Add</button>
   </div>
   <div class="kanban-board" id="kanban-board"></div>
 </div>
@@ -656,13 +661,13 @@
 <!-- ═══════════════════════ QUESTIONS VIEW ═══════════════════════ -->
 <div id="view-questions" class="view">
   <div class="row" style="margin-bottom:12px">
-    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="openJobs()">← Jobs</button>
     <div style="margin-left:12px">
       <h2 style="margin:0">Questions</h2>
       <span id="q-context-label" style="display:none;font-size:12px;color:var(--accent)"></span>
     </div>
     <button class="btn btn-primary" style="width:auto;padding:8px 14px;font-size:13px;gap:6px;margin-left:auto" onclick="startQuestionReview()">
-      Study <span id="q-due-count" class="due-badge" style="display:none"></span>
+      Drill <span id="q-due-count" class="due-badge" style="display:none"></span>
     </button>
   </div>
 
@@ -724,7 +729,7 @@
     </div>
   </div>
 
-  <div style="display:flex;gap:8px;margin-bottom:var(--gap)">
+  <div style="display:flex;gap:8px;margin-bottom:var(--gap);flex-wrap:wrap">
     <button class="btn btn-secondary" style="font-size:13px;padding:8px 12px" onclick="toggleQAddForm()">+ Add question</button>
     <button class="btn btn-secondary" style="font-size:13px;padding:8px 12px" onclick="openExtractModal()">⬆ Import from transcript</button>
     <input type="file" id="q-import-file" accept=".txt,.md,text/plain,text/markdown" style="display:none" onchange="loadImportFile(this)">
@@ -841,11 +846,41 @@
     </div>
 
     <input type="hidden" id="ee-entry-id">
-    <div style="display:flex;gap:8px">
+    <div style="display:flex;gap:8px;margin-bottom:var(--gap)">
       <button class="btn btn-primary" onclick="saveEntryEditModal()">Save</button>
       <button class="btn btn-secondary" onclick="closeEntryEditModal()">Cancel</button>
     </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:12px">
+      <div class="section-title" style="margin-bottom:8px">Related</div>
+      <div id="ee-related" style="font-size:13px;color:var(--muted)">—</div>
+    </div>
   </div>
+</div>
+
+<!-- ═══════════════════════ TECH VIEW ═══════════════════════ -->
+<div id="view-tech" class="view">
+  <div class="row" style="margin-bottom:16px">
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
+    <h2 style="margin:0 0 0 12px">Tech</h2>
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;margin-left:auto" onclick="openArticleModal()">From Article</button>
+  </div>
+
+  <!-- Quick-access cards -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:var(--gap)">
+    <button class="card" style="text-align:left;cursor:pointer;border:none;gap:4px" onclick="openGraphView()">
+      <div style="font-size:15px;font-weight:600">Knowledge Graph</div>
+      <div style="font-size:12px;color:var(--muted)">Concepts &amp; relationships from your books</div>
+    </button>
+    <button class="card" style="text-align:left;cursor:pointer;border:none;gap:4px" onclick="openArticleModal()">
+      <div style="font-size:15px;font-weight:600">From Article</div>
+      <div style="font-size:12px;color:var(--muted)">Generate study or interview questions</div>
+    </button>
+  </div>
+
+  <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Study Questions</div>
+  <div id="study-tag-filter" class="filter-bar" style="margin-bottom:10px;display:none"></div>
+  <div id="study-list" style="display:flex;flex-direction:column;gap:8px"></div>
 </div>
 
 <!-- ═══════════════════════ ADMIN VIEW ═══════════════════════ -->
@@ -857,13 +892,14 @@
     </div>
 
     <!-- Tab bar -->
-    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
+    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <button class="admin-tab active" data-tab="concepts" onclick="switchAdminTab(this,'concepts')">Concepts</button>
       <button class="admin-tab" data-tab="english" onclick="switchAdminTab(this,'english')">English</button>
       <button class="admin-tab" data-tab="applications" onclick="switchAdminTab(this,'applications')">Applications</button>
       <button class="admin-tab" data-tab="questions" onclick="switchAdminTab(this,'questions')">Questions</button>
       <button class="admin-tab" data-tab="import" onclick="switchAdminTab(this,'import')">Import</button>
       <button class="admin-tab" data-tab="sync" onclick="switchAdminTab(this,'sync');openSync()">Sync</button>
+      <button class="admin-tab" style="white-space:nowrap" data-tab="providers" onclick="switchAdminTab(this,'providers');loadProviders()">AI Providers</button>
     </div>
 
     <!-- Concepts tab -->
@@ -883,6 +919,7 @@
 
     <!-- Questions tab -->
     <div id="admin-tab-questions" class="admin-panel" style="display:none">
+      <div id="admin-q-tag-filter" class="filter-bar" style="margin-bottom:12px;display:none"></div>
       <div id="admin-questions-list"></div>
     </div>
 
@@ -913,6 +950,99 @@
     <!-- Sync tab -->
     <div id="admin-tab-sync" class="admin-panel" style="display:none">
       <div style="font-size:13px;color:var(--muted)">Opening sync dialog…</div>
+    </div>
+
+    <!-- AI Providers tab -->
+    <div id="admin-tab-providers" class="admin-panel" style="display:none">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <span style="font-size:14px;font-weight:600;flex:1">AI Providers</span>
+        <button class="btn btn-primary" style="width:auto;padding:7px 14px;font-size:13px" onclick="openProviderForm()">+ Add</button>
+      </div>
+
+      <div id="providers-list" style="display:flex;flex-direction:column;gap:8px"></div>
+
+      <!-- Add / Edit form -->
+      <div id="provider-form" style="display:none;margin-top:16px;border:1px solid var(--border);border-radius:var(--radius);padding:16px;background:var(--bg)">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px" id="provider-form-title">Add Provider</div>
+        <input type="hidden" id="provider-form-id">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Name</div>
+            <input id="provider-name" type="text" placeholder="e.g. Groq llama-3.3-70b">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Type</div>
+            <select id="provider-type" onchange="toggleProviderBaseUrl()">
+              <option value="openai_compatible">OpenAI-compatible</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+          </div>
+        </div>
+        <div id="provider-base-url-row" style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Base URL <span style="color:var(--muted)">(leave blank for OpenAI default)</span></div>
+          <input id="provider-base-url" type="url" placeholder="https://api.groq.com/openai/v1">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">API Key</div>
+            <input id="provider-api-key" type="password" placeholder="sk-…">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Model</div>
+            <input id="provider-model" type="text" placeholder="e.g. gpt-4o">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" style="width:auto;padding:7px 14px;font-size:13px" onclick="saveProvider()">Save</button>
+          <button class="btn btn-secondary" style="width:auto;padding:7px 14px;font-size:13px" onclick="closeProviderForm()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ ARTICLE → QUESTIONS MODAL ═══════════════════════ -->
+<div id="article-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:200;padding:var(--gap);align-items:center;justify-content:center;overflow-y:auto" onclick="if(event.target===this)closeArticleModal()">
+  <div class="card" style="width:100%;max-width:520px;margin:auto">
+    <div class="row" style="margin-bottom:var(--gap)">
+      <h2 style="margin:0">From Article</h2>
+      <button onclick="closeArticleModal()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1">✕</button>
+    </div>
+
+    <div class="section-title" style="margin-bottom:6px">Source</div>
+    <div class="filter-bar" style="margin-bottom:10px">
+      <button class="filter-btn active" id="article-tab-url" onclick="switchArticleTab('url')">URL</button>
+      <button class="filter-btn" id="article-tab-text" onclick="switchArticleTab('text')">Paste text</button>
+    </div>
+    <div id="article-url-input" style="margin-bottom:var(--gap)">
+      <input id="article-url" type="url" placeholder="https://example.com/system-design-guide" style="margin-bottom:4px">
+      <div style="font-size:11px;color:var(--muted)">The server will fetch and extract the article text.</div>
+    </div>
+    <div id="article-text-input" style="display:none;margin-bottom:var(--gap)">
+      <textarea id="article-content" placeholder="Paste article text or Markdown here…" style="min-height:110px;resize:vertical"></textarea>
+    </div>
+
+    <div class="section-title" style="margin-bottom:6px">Mode</div>
+    <div class="filter-bar" style="margin-bottom:var(--gap)">
+      <button class="filter-btn active" id="article-mode-btn-study" onclick="setArticleMode('study')">Study</button>
+      <button class="filter-btn" id="article-mode-btn-interview" onclick="setArticleMode('interview')">Interview</button>
+    </div>
+
+    <div class="section-title" style="margin-bottom:6px">Questions — <span id="article-count-label">6</span></div>
+    <input type="range" id="article-count" min="4" max="10" value="6" oninput="document.getElementById('article-count-label').textContent=this.value" style="width:100%;margin-bottom:var(--gap);accent-color:var(--accent)">
+
+    <div class="section-title" style="margin-bottom:6px">Tags <span style="font-size:11px;font-weight:400;color:var(--muted)">(comma-separated)</span></div>
+    <input id="article-tags" type="text" placeholder="e.g. flink, stream-processing" style="margin-bottom:var(--gap)">
+
+    <button id="article-generate-btn" class="btn btn-primary" onclick="generateArticleQuestions()">Generate</button>
+
+    <div id="article-preview" style="display:none;margin-top:var(--gap);border-top:1px solid var(--border);padding-top:var(--gap)">
+      <div class="row" style="margin-bottom:10px">
+        <div class="section-title" style="margin:0">Preview</div>
+        <span id="article-preview-count" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+      </div>
+      <div id="article-preview-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:var(--gap)"></div>
+      <button class="btn btn-secondary" onclick="saveArticleQuestions()">Close &amp; go to question bank</button>
     </div>
   </div>
 </div>
@@ -1758,6 +1888,13 @@ function openPanel(detail, linkedQuestions = []) {
 
   document.getElementById("node-panel").classList.add("open");
   document.getElementById("node-panel").dataset.conceptId = detail.id;
+
+  // Load related notes
+  const relatedEl = document.getElementById("panel-related");
+  relatedEl.textContent = "Loading…";
+  api("GET", `/notes/concept/${detail.id}/related?limit=5`)
+    .then(items => { relatedEl.innerHTML = renderRelated(items); })
+    .catch(() => { relatedEl.textContent = "—"; });
 }
 
 function closePanel() {
@@ -2583,6 +2720,7 @@ async function loadQuestions() {
     if (_qFilter.type) params.set("q_type", _qFilter.type);
     if (_qFilter.source) params.set("source", _qFilter.source);
     if (_qContext.appId) params.set("application_id", _qContext.appId);
+    params.set("category", "interview");
     const qs = params.toString();
     _questionsRaw = await api("GET", "/questions" + (qs ? "?" + qs : ""));
 
@@ -2975,6 +3113,232 @@ async function confirmImport() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Study view
+// ---------------------------------------------------------------------------
+
+async function openTech() {
+  show("tech");
+  await loadStudyQuestions();
+}
+
+let _studyTagFilter = null;
+let _studyQuestions = [];
+
+async function loadStudyQuestions() {
+  _studyQuestions = await api("GET", "/questions?category=study");
+  renderStudyTagFilter();
+  renderStudyList();
+}
+
+function renderStudyTagFilter() {
+  const bar = document.getElementById("study-tag-filter");
+  const allTags = [...new Set(_studyQuestions.flatMap(q => q.tags || []))].sort();
+  if (allTags.length < 2) { bar.style.display = "none"; return; }
+  bar.style.display = "flex";
+  bar.innerHTML = [
+    `<button class="filter-btn${_studyTagFilter === null ? " active" : ""}" onclick="setStudyTagFilter(null)">All</button>`,
+    ...allTags.map(t => `<button class="filter-btn${_studyTagFilter === t ? " active" : ""}" onclick="setStudyTagFilter('${escHtml(t)}')">${escHtml(t)}</button>`)
+  ].join("");
+}
+
+function setStudyTagFilter(tag) {
+  _studyTagFilter = tag;
+  renderStudyTagFilter();
+  renderStudyList();
+}
+
+function renderStudyList() {
+  const list = document.getElementById("study-list");
+  const questions = _studyTagFilter
+    ? _studyQuestions.filter(q => (q.tags || []).includes(_studyTagFilter))
+    : _studyQuestions;
+  if (!questions.length) {
+    list.innerHTML = `<div class="card" style="color:var(--muted);font-size:13px;text-align:center;padding:32px">
+      No study questions yet.<br>Use "From Article" to generate questions from an article or guide.
+    </div>`;
+    return;
+  }
+  list.innerHTML = questions.map(q => {
+    const followUps = (() => { try { return JSON.parse(q.notes || "[]"); } catch { return []; } })();
+    const tags = (q.tags || []).filter(t => t !== "article");
+    return `
+      <div class="card" style="gap:8px" id="study-card-${q.id}">
+        <div style="display:flex;align-items:flex-start;gap:8px">
+          <span class="type-badge ${q.q_type}" style="flex-shrink:0;margin-top:2px">${q.q_type.replace("_"," ")}</span>
+          <span style="font-size:14px;font-weight:500;line-height:1.4;flex:1">${escHtml(q.question)}</span>
+          <div style="display:flex;gap:4px;flex-shrink:0;margin-top:1px">
+            <button style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="toggleStudyEdit('${q.id}')">Edit</button>
+            <button style="background:none;border:none;color:var(--red);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="deleteStudyQ('${q.id}')">Delete</button>
+          </div>
+        </div>
+        ${tags.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap">${tags.map(t=>`<span style="font-size:11px;padding:1px 7px;border-radius:99px;background:var(--bg);color:var(--muted);border:1px solid var(--border)">${escHtml(t)}</span>`).join("")}</div>` : ""}
+        ${q.answer ? `
+          <details style="margin-left:2px">
+            <summary style="font-size:12px;color:var(--accent);cursor:pointer;user-select:none">Show answer</summary>
+            <div style="font-size:13px;color:var(--muted);line-height:1.6;margin-top:8px;padding:10px;background:var(--bg);border-radius:6px">${escHtml(q.answer)}</div>
+          </details>` : ""}
+        ${followUps.length ? `
+          <details style="margin-left:2px">
+            <summary style="font-size:12px;color:var(--muted);cursor:pointer;user-select:none">Follow-ups (${followUps.length})</summary>
+            <div style="margin-top:6px;padding:8px;background:color-mix(in srgb,var(--accent) 5%,transparent);border-radius:6px">
+              ${followUps.map(f => `<div style="font-size:12px;color:var(--muted);margin-bottom:3px">• ${escHtml(f)}</div>`).join("")}
+            </div>
+          </details>` : ""}
+        <div id="study-edit-${q.id}" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px">
+          <div style="margin-bottom:8px"><span style="font-size:11px;color:var(--muted)">Question</span>
+            <textarea id="study-edit-q-${q.id}" style="min-height:60px;margin-top:4px">${escHtml(q.question)}</textarea></div>
+          <div style="margin-bottom:8px"><span style="font-size:11px;color:var(--muted)">Answer</span>
+            <textarea id="study-edit-a-${q.id}" style="min-height:60px;margin-top:4px">${escHtml(q.answer||"")}</textarea></div>
+          <div style="margin-bottom:10px"><span style="font-size:11px;color:var(--muted)">Tags (comma-separated)</span>
+            <input id="study-edit-tags-${q.id}" type="text" style="margin-top:4px" value="${escHtml((q.tags||[]).join(", "))}"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" style="width:auto;padding:6px 14px;font-size:13px" onclick="saveStudyQ('${q.id}')">Save</button>
+            <button class="btn btn-secondary" style="width:auto;padding:6px 14px;font-size:13px" onclick="toggleStudyEdit('${q.id}')">Cancel</button>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function toggleStudyEdit(id) {
+  const el = document.getElementById(`study-edit-${id}`);
+  el.style.display = el.style.display === "none" ? "block" : "none";
+}
+
+async function saveStudyQ(id) {
+  const payload = {
+    question: document.getElementById(`study-edit-q-${id}`).value.trim(),
+    answer: document.getElementById(`study-edit-a-${id}`).value.trim() || null,
+    tags: document.getElementById(`study-edit-tags-${id}`).value.split(",").map(t=>t.trim()).filter(Boolean),
+  };
+  try {
+    await api("PATCH", `/questions/${id}`, payload);
+    await loadStudyQuestions();
+  } catch (e) { alert("Save failed: " + e.message); }
+}
+
+async function deleteStudyQ(id) {
+  if (!confirm("Delete this question?")) return;
+  try {
+    await fetch(`/questions/${id}`, { method: "DELETE" });
+    await loadStudyQuestions();
+  } catch (e) { alert("Delete failed: " + e.message); }
+}
+
+// ---------------------------------------------------------------------------
+// Article → Questions
+// ---------------------------------------------------------------------------
+
+let _articleTab = "url";
+let _articleMode = "study";
+let _articleGeneratedQuestions = [];
+
+function openArticleModal() {
+  document.getElementById("article-modal").style.display = "flex";
+  document.getElementById("article-preview").style.display = "none";
+  document.getElementById("article-url").value = "";
+  document.getElementById("article-content").value = "";
+  document.getElementById("article-tags").value = "";
+  _articleGeneratedQuestions = [];
+  switchArticleTab("url");
+  setArticleMode("study");
+  document.getElementById("article-count").value = "6";
+  document.getElementById("article-count-label").textContent = "6";
+}
+
+function closeArticleModal() {
+  document.getElementById("article-modal").style.display = "none";
+}
+
+function switchArticleTab(tab) {
+  _articleTab = tab;
+  document.getElementById("article-url-input").style.display = tab === "url" ? "block" : "none";
+  document.getElementById("article-text-input").style.display = tab === "text" ? "block" : "none";
+  document.getElementById("article-tab-url").classList.toggle("active", tab === "url");
+  document.getElementById("article-tab-text").classList.toggle("active", tab === "text");
+}
+
+function setArticleMode(mode) {
+  _articleMode = mode;
+  document.getElementById("article-mode-btn-study").classList.toggle("active", mode === "study");
+  document.getElementById("article-mode-btn-interview").classList.toggle("active", mode === "interview");
+}
+
+async function generateArticleQuestions() {
+  const mode = _articleMode;
+  const count = parseInt(document.getElementById("article-count").value, 10);
+  const btn = document.getElementById("article-generate-btn");
+
+  const rawTags = document.getElementById("article-tags").value.trim();
+  const extraTags = rawTags ? rawTags.split(",").map(t => t.trim()).filter(Boolean) : [];
+  let payload = { mode, count, extra_tags: extraTags };
+  if (_articleTab === "url") {
+    const url = document.getElementById("article-url").value.trim();
+    if (!url) { alert("Please enter a URL."); return; }
+    payload.url = url;
+  } else {
+    const content = document.getElementById("article-content").value.trim();
+    if (!content) { alert("Please paste article text."); return; }
+    payload.content = content;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Generating…";
+  document.getElementById("article-preview").style.display = "none";
+
+  try {
+    const result = await api("POST", "/articles/generate-questions", payload);
+    _articleGeneratedQuestions = result.question_ids || [];
+    // Fetch actual question objects to show in preview
+    const allQ = await api("GET", "/questions?category=study");
+    const created = allQ.filter(q => _articleGeneratedQuestions.includes(q.id));
+    renderArticlePreview(result, created);
+  } catch (e) {
+    alert("Generation failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Generate";
+  }
+}
+
+function renderArticlePreview(result, questions = []) {
+  const preview = document.getElementById("article-preview");
+  const list = document.getElementById("article-preview-list");
+  const count = result.questions_created || 0;
+  document.getElementById("article-preview-count").textContent = `${count} question${count !== 1 ? "s" : ""} generated`;
+
+  if (questions.length) {
+    list.innerHTML = questions.map(q => {
+      const followUps = (() => { try { return JSON.parse(q.notes || "[]"); } catch { return []; } })();
+      return `
+        <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--bg)">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
+            <span class="type-badge ${q.q_type}" style="flex-shrink:0;margin-top:2px">${q.q_type.replace("_"," ")}</span>
+            <span style="font-size:14px;font-weight:500;line-height:1.4">${escHtml(q.question)}</span>
+          </div>
+          ${q.answer ? `<div style="font-size:13px;color:var(--muted);line-height:1.5;padding-left:2px">${escHtml(q.answer)}</div>` : ""}
+          ${followUps.length ? `
+            <div style="margin-top:8px;padding:8px;background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:6px">
+              <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Follow-ups</div>
+              ${followUps.map(f => `<div style="font-size:12px;color:var(--muted);margin-bottom:2px">• ${escHtml(f)}</div>`).join("")}
+            </div>` : ""}
+        </div>`;
+    }).join("");
+  } else {
+    list.innerHTML = `<div style="font-size:13px;color:var(--muted);padding:8px 0">${count} question${count !== 1 ? "s" : ""} saved to question bank.</div>`;
+  }
+  preview.style.display = "flex";
+}
+
+async function saveArticleQuestions() {
+  closeArticleModal();
+  show("tech");
+  await loadStudyQuestions();
+}
+
+// ---------------------------------------------------------------------------
+
 async function submitQuestion() {
   const question = document.getElementById("q-question-input").value.trim();
   if (!question) return;
@@ -3063,6 +3427,136 @@ async function loadAdminTab(tab) {
   else if (tab === "english") await loadAdminEntries();
   else if (tab === "applications") await loadAdminApps();
   else if (tab === "questions") await loadAdminQuestions();
+  else if (tab === "providers") await loadProviders();
+}
+
+// ---------------------------------------------------------------------------
+// AI Providers
+// ---------------------------------------------------------------------------
+
+let _editingProviderId = null;
+
+async function loadProviders() {
+  const list = document.getElementById("providers-list");
+  list.innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    const providers = await api("GET", "/providers");
+    if (!providers.length) {
+      list.innerHTML = `<div class="empty">No providers configured. Add one to switch from the local .env default.</div>`;
+      return;
+    }
+    list.innerHTML = providers.map(p => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius);border:1px solid ${p.is_active ? 'var(--accent)' : 'var(--border)'};background:${p.is_active ? 'color-mix(in srgb,var(--accent) 6%,transparent)' : 'var(--bg)'}">
+        <div style="width:8px;height:8px;border-radius:50%;background:${p.is_active ? 'var(--accent)' : 'var(--border)'};flex-shrink:0"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600">${escHtml(p.name)}</div>
+          <div style="font-size:11px;color:var(--muted)">${escHtml(p.provider_type)} · ${escHtml(p.model)}${p.base_url ? ' · ' + escHtml(p.base_url) : ''}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-secondary" style="width:auto;padding:5px 10px;font-size:12px" onclick="testProvider('${p.id}', this)">Test</button>
+          <button class="btn btn-secondary" style="width:auto;padding:5px 10px;font-size:12px" onclick="editProvider(${JSON.stringify(p).replace(/"/g,'&quot;')})">Edit</button>
+          ${!p.is_active ? `<button class="btn btn-secondary" style="width:auto;padding:5px 10px;font-size:12px" onclick="activateProvider('${p.id}')">Activate</button>` : ''}
+          ${!p.is_active ? `<button class="btn btn-secondary" style="width:auto;padding:5px 10px;font-size:12px;color:var(--red)" onclick="deleteProvider('${p.id}')">Delete</button>` : ''}
+        </div>
+      </div>
+    `).join("");
+  } catch (e) {
+    list.innerHTML = `<div class="empty" style="color:var(--red)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function openProviderForm() {
+  _editingProviderId = null;
+  document.getElementById("provider-form-title").textContent = "Add Provider";
+  document.getElementById("provider-form-id").value = "";
+  document.getElementById("provider-name").value = "";
+  document.getElementById("provider-type").value = "openai_compatible";
+  document.getElementById("provider-base-url").value = "";
+  document.getElementById("provider-api-key").value = "";
+  document.getElementById("provider-model").value = "";
+  toggleProviderBaseUrl();
+  document.getElementById("provider-form").style.display = "block";
+}
+
+function editProvider(p) {
+  _editingProviderId = p.id;
+  document.getElementById("provider-form-title").textContent = "Edit Provider";
+  document.getElementById("provider-form-id").value = p.id;
+  document.getElementById("provider-name").value = p.name;
+  document.getElementById("provider-type").value = p.provider_type;
+  document.getElementById("provider-base-url").value = p.base_url || "";
+  document.getElementById("provider-api-key").value = "";
+  document.getElementById("provider-model").value = p.model;
+  toggleProviderBaseUrl();
+  document.getElementById("provider-form").style.display = "block";
+}
+
+function closeProviderForm() {
+  document.getElementById("provider-form").style.display = "none";
+  _editingProviderId = null;
+}
+
+function toggleProviderBaseUrl() {
+  const type = document.getElementById("provider-type").value;
+  document.getElementById("provider-base-url-row").style.display = type === "openai_compatible" ? "block" : "none";
+}
+
+async function saveProvider() {
+  const payload = {
+    name: document.getElementById("provider-name").value.trim(),
+    provider_type: document.getElementById("provider-type").value,
+    base_url: document.getElementById("provider-base-url").value.trim() || null,
+    model: document.getElementById("provider-model").value.trim(),
+  };
+  const apiKey = document.getElementById("provider-api-key").value.trim();
+  if (apiKey) payload.api_key = apiKey;
+  if (!payload.name || !payload.model) { alert("Name and model are required."); return; }
+  try {
+    if (_editingProviderId) {
+      await api("PATCH", `/providers/${_editingProviderId}`, payload);
+    } else {
+      await api("POST", "/providers", payload);
+    }
+    closeProviderForm();
+    await loadProviders();
+  } catch (e) {
+    alert("Save failed: " + e.message);
+  }
+}
+
+async function activateProvider(id) {
+  try {
+    await api("POST", `/providers/${id}/activate`);
+    await loadProviders();
+  } catch (e) {
+    alert("Activate failed: " + e.message);
+  }
+}
+
+async function deleteProvider(id) {
+  if (!confirm("Delete this provider?")) return;
+  try {
+    await api("DELETE", `/providers/${id}`);
+    await loadProviders();
+  } catch (e) {
+    alert("Delete failed: " + e.message);
+  }
+}
+
+async function testProvider(id, btn) {
+  btn.disabled = true;
+  btn.textContent = "Testing…";
+  try {
+    const result = await api("POST", `/providers/${id}/test`);
+    btn.textContent = result.ok ? `${result.latency_ms}ms` : "Failed";
+    btn.style.color = result.ok ? "var(--green)" : "var(--red)";
+    if (!result.ok) btn.title = result.error || "unknown error";
+    setTimeout(() => { btn.textContent = "Test"; btn.style.color = ""; btn.disabled = false; }, 3000);
+  } catch (e) {
+    btn.textContent = "Error";
+    btn.style.color = "var(--red)";
+    setTimeout(() => { btn.textContent = "Test"; btn.style.color = ""; btn.disabled = false; }, 3000);
+  }
 }
 
 async function loadAdminConcepts() {
@@ -3172,6 +3666,12 @@ async function openEntryEditModal(id) {
   document.getElementById("ee-synonyms").value = _lines(d.synonyms);
   document.getElementById("ee-derivatives").value = _lines(d.derivatives);
   document.getElementById("entry-edit-modal").style.display = "flex";
+
+  const relEl = document.getElementById("ee-related");
+  relEl.textContent = "Loading…";
+  api("GET", `/notes/entry/${id}/related?limit=5`)
+    .then(items => { relEl.innerHTML = renderRelated(items); })
+    .catch(() => { relEl.textContent = "—"; });
 }
 
 function closeEntryEditModal() {
@@ -3281,49 +3781,81 @@ async function adminDeleteApp(id) {
   } catch (e) { alert("Delete failed: " + e.message); }
 }
 
+let _adminQTagFilter = null;
+let _adminQuestions = [];
+
 async function loadAdminQuestions() {
   const el = document.getElementById("admin-questions-list");
   el.innerHTML = `<div class="empty">Loading…</div>`;
   try {
-    const qs = await api("GET", "/questions");
-    if (!qs.length) { el.innerHTML = `<div class="empty">No questions</div>`; return; }
-    el.innerHTML = qs.map(q => `
-      <div class="admin-row" id="admin-q-row-${q.id}">
-        <div>
-          <div style="font-weight:600">${escHtml(q.question.slice(0,80))}${q.question.length>80?"…":""}</div>
-          <div style="color:var(--muted);font-size:12px;margin-top:2px">
-            <span class="type-badge ${q.q_type}" style="font-size:10px">${q.q_type.replace("_"," ")}</span>
-            ${q.source} · score ${q.self_score}/3 · reps ${q.reps}
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;flex-direction:column">
-          <button class="admin-edit-btn" onclick="toggleAdminQEdit('${q.id}')">Edit</button>
-          <button class="admin-edit-btn" style="color:var(--red);border-color:var(--red)" onclick="adminDeleteQ('${q.id}')">Delete</button>
-        </div>
-      </div>
-      <div id="admin-q-form-${q.id}" style="display:none" class="admin-inline-form">
-        <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--muted)">Question</label>
-          <textarea id="admin-q-question-${q.id}" style="min-height:60px;margin-top:4px">${escHtml(q.question)}</textarea></div>
-        <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--muted)">Answer notes</label>
-          <textarea id="admin-q-answer-${q.id}" style="min-height:60px;margin-top:4px">${escHtml(q.answer||"")}</textarea></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-          <div><label style="font-size:12px;color:var(--muted)">Type</label>
-            <select id="admin-q-type-${q.id}" style="margin-top:4px">
-              ${["behavioral","system_design","coding","other"].map(t => `<option value="${t}"${q.q_type===t?" selected":""}>${t.replace("_"," ")}</option>`).join("")}
-            </select></div>
-          <div><label style="font-size:12px;color:var(--muted)">Source</label>
-            <select id="admin-q-source-${q.id}" style="margin-top:4px">
-              <option value="mock"${q.source==="mock"?" selected":""}>Mock</option>
-              <option value="real"${q.source==="real"?" selected":""}>Real</option>
-            </select></div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="adminSaveQ('${q.id}')">Save</button>
-          <button class="btn btn-secondary" style="padding:8px 16px;font-size:13px" onclick="toggleAdminQEdit('${q.id}')">Cancel</button>
-        </div>
-      </div>
-    `).join("");
+    _adminQuestions = await api("GET", "/questions");
+    renderAdminQTagFilter();
+    renderAdminQuestions();
   } catch (e) { el.innerHTML = `<div class="empty">Failed to load</div>`; }
+}
+
+function renderAdminQTagFilter() {
+  const bar = document.getElementById("admin-q-tag-filter");
+  const allTags = [...new Set(_adminQuestions.flatMap(q => q.tags || []))].sort();
+  if (allTags.length < 2) { bar.style.display = "none"; return; }
+  bar.style.display = "flex";
+  bar.innerHTML = [
+    `<button class="filter-btn${_adminQTagFilter === null ? " active" : ""}" onclick="setAdminQTagFilter(null)">All</button>`,
+    ...allTags.map(t => `<button class="filter-btn${_adminQTagFilter === t ? " active" : ""}" onclick="setAdminQTagFilter('${escHtml(t)}')">${escHtml(t)}</button>`)
+  ].join("");
+}
+
+function setAdminQTagFilter(tag) {
+  _adminQTagFilter = tag;
+  renderAdminQTagFilter();
+  renderAdminQuestions();
+}
+
+function renderAdminQuestions() {
+  const el = document.getElementById("admin-questions-list");
+  const qs = _adminQTagFilter
+    ? _adminQuestions.filter(q => (q.tags || []).includes(_adminQTagFilter))
+    : _adminQuestions;
+  if (!qs.length) { el.innerHTML = `<div class="empty">No questions</div>`; return; }
+  el.innerHTML = qs.map(q => `
+    <div class="admin-row" id="admin-q-row-${q.id}">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600">${escHtml(q.question.slice(0,80))}${q.question.length>80?"…":""}</div>
+        <div style="color:var(--muted);font-size:12px;margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <span class="type-badge ${q.q_type}" style="font-size:10px">${q.q_type.replace("_"," ")}</span>
+          <span>${q.source} · score ${q.self_score}/3</span>
+          ${(q.tags||[]).map(t=>`<span style="padding:1px 6px;border-radius:99px;background:var(--bg);border:1px solid var(--border)">${escHtml(t)}</span>`).join("")}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="admin-edit-btn" onclick="toggleAdminQEdit('${q.id}')">Edit</button>
+        <button class="admin-edit-btn" style="color:var(--red);border-color:var(--red)" onclick="adminDeleteQ('${q.id}')">Delete</button>
+      </div>
+    </div>
+    <div id="admin-q-form-${q.id}" style="display:none" class="admin-inline-form">
+      <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--muted)">Question</label>
+        <textarea id="admin-q-question-${q.id}" style="min-height:60px;margin-top:4px">${escHtml(q.question)}</textarea></div>
+      <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--muted)">Answer</label>
+        <textarea id="admin-q-answer-${q.id}" style="min-height:60px;margin-top:4px">${escHtml(q.answer||"")}</textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:12px;color:var(--muted)">Type</label>
+          <select id="admin-q-type-${q.id}" style="margin-top:4px">
+            ${["behavioral","system_design","coding","other"].map(t=>`<option value="${t}"${q.q_type===t?" selected":""}>${t.replace("_"," ")}</option>`).join("")}
+          </select></div>
+        <div><label style="font-size:12px;color:var(--muted)">Source</label>
+          <select id="admin-q-source-${q.id}" style="margin-top:4px">
+            <option value="mock"${q.source==="mock"?" selected":""}>Mock</option>
+            <option value="real"${q.source==="real"?" selected":""}>Real</option>
+          </select></div>
+      </div>
+      <div style="margin-bottom:10px"><label style="font-size:12px;color:var(--muted)">Tags (comma-separated)</label>
+        <input id="admin-q-tags-${q.id}" type="text" style="margin-top:4px" value="${escHtml((q.tags||[]).join(", "))}"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="adminSaveQ('${q.id}')">Save</button>
+        <button class="btn btn-secondary" style="padding:8px 16px;font-size:13px" onclick="toggleAdminQEdit('${q.id}')">Cancel</button>
+      </div>
+    </div>
+  `).join("");
 }
 
 function toggleAdminQEdit(id) {
@@ -3337,6 +3869,7 @@ async function adminSaveQ(id) {
     answer: document.getElementById(`admin-q-answer-${id}`).value.trim() || null,
     q_type: document.getElementById(`admin-q-type-${id}`).value,
     source: document.getElementById(`admin-q-source-${id}`).value,
+    tags: document.getElementById(`admin-q-tags-${id}`).value.split(",").map(t=>t.trim()).filter(Boolean),
   };
   try {
     await api("PATCH", `/questions/${id}`, payload);
@@ -3477,6 +4010,19 @@ function renderInboxList(items) {
 
 function escHtml(s) {
   return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// ═══════════════════════ RELATED NOTES ═══════════════════════
+
+function renderRelated(items) {
+  if (!items || items.length === 0) return '<span style="color:var(--muted)">No related notes yet — embeddings generate in the background after notes are created.</span>';
+  const typeLabel = { entry: "English", concept: "Concept", question: "Question" };
+  return items.map(r => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:11px;background:#6366f120;color:var(--accent);border-radius:4px;padding:1px 6px;flex-shrink:0">${typeLabel[r.note_type] || r.note_type}</span>
+      <span style="font-size:13px;flex:1;color:var(--text)">${escHtml(r.note_id)}</span>
+      <span style="font-size:11px;color:var(--muted)">${Math.round(r.score * 100)}%</span>
+    </div>`).join("");
 }
 
 // ═══════════════════════ PWA ═══════════════════════

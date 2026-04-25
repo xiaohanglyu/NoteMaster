@@ -47,6 +47,13 @@ The backend runs on your Mac. The web UI is accessible from any device on the sa
 - Drill down from a Kanban card into questions from a specific interview round
 - Link questions to concepts — concept pills appear on question cards; question nodes appear on the graph
 
+### Article → Questions (issue #39)
+- Paste a URL or article text; choose **Study mode** or **Interview mode**
+- **Study mode**: generates definition, comparison, and when-to-use questions with full model answers — for understanding
+- **Interview mode**: generates scenario-based questions with 2–3 pre-written follow-up probes per question — simulates a senior engineer grilling you in English
+- All generated questions land in the question bank and are immediately available for drill and spaced repetition
+- See [docs/features/article-to-questions.md](docs/features/article-to-questions.md) for design details
+
 ### Import
 - Sync highlights from Apple Books via Asset ID
 - Import `.txt`, `.md`, or `.pdf` files as concepts
@@ -293,7 +300,7 @@ pytest tests/unit/test_inbox_api.py -v
 pytest -m integration
 ```
 
-The test suite has 471 unit tests, all running against an in-memory SQLite database with mocked AI clients.
+The test suite has 495+ unit tests, all running against an in-memory SQLite database with mocked AI clients.
 
 ---
 
@@ -305,7 +312,7 @@ NoteMaster/
 │   ├── models.py       # Pydantic models for all entities
 │   ├── db.py           # SQLite CRUD for all tables
 │   ├── main.py         # FastAPI app + CLI entry point
-│   ├── ai.py           # AI: evaluate, synthesize, enrich, classify
+│   ├── ai.py           # AI: evaluate, synthesize, enrich, classify, generate questions
 │   ├── books.py        # Apple Books highlight reader
 │   ├── session.py      # Spaced repetition scheduling
 │   ├── stt.py          # Whisper speech-to-text
@@ -405,6 +412,11 @@ NoteMaster/
 | `GET` | `/questions/{id}/concepts` | Linked concepts |
 | `POST` | `/questions/{id}/concepts` | Link concept |
 | `DELETE` | `/questions/{id}/concepts/{cid}` | Unlink concept |
+
+### Article → Questions
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/articles/generate-questions` | Generate questions from URL or text; `mode=study\|interview` |
 
 ---
 

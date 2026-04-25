@@ -10,6 +10,7 @@ Key decisions made during development, with context and tradeoffs.
 | [004](004-knowledge-graph-synthesis.md) | Knowledge graph built by AI synthesis | Accepted, under review |
 | [005](005-single-file-pwa.md) | Single-file PWA frontend, no build step | Accepted |
 | [006](006-tdd-methodology.md) | Test-driven development | Accepted |
+| [007](007-vector-embeddings-association.md) | Lightweight knowledge association via vector embeddings | Accepted |
 
 ## How to add a new ADR
 

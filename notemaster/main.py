@@ -1,3 +1,4 @@
+import json
 import sys
 import uuid
 from datetime import datetime
@@ -7,15 +8,15 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, Form, Backgroun
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from typing import Annotated
-from notemaster import books, ai, stt, importer, ocr
+from notemaster import books, ai, embeddings, stt, importer, ocr, providers
 from notemaster.db import Database
 from notemaster.models import (
     Book, Concept, ConceptEdge, RelationType, ConceptWithPriority,
     EvaluationResult, StudySession, Score,
     Entry, EntryData, EntryType, PronunciationResult,
     Application, ApplicationStatus, ApplicationRound,
-    InterviewQuestion, QuestionType, QuestionSource, QuestionReviewRecord,
-    InboxItem, InboxClassification,
+    InterviewQuestion, QuestionType, QuestionSource, QuestionCategory, QuestionReviewRecord,
+    InboxItem, InboxClassification, AIProvider,
 )
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
@@ -486,6 +487,14 @@ def _bg_enrich(entry_id: str, db: Database):
         pass
 
 
+def _bg_embed(note_type: str, note_id: str, text: str, db: Database):
+    try:
+        vector = embeddings.embed(text)
+        db.save_embedding(note_type, note_id, vector)
+    except Exception:
+        pass
+
+
 def _bg_enrich_extra(entry_id: str, fields: list[str], db: Database):
     try:
         entry = db.get_entry(entry_id)
@@ -523,6 +532,7 @@ def create_entry(req: CreateEntryRequest, background_tasks: BackgroundTasks, db:
     )
     db.create_entry(entry)
     background_tasks.add_task(_bg_enrich, entry.id, db)
+    background_tasks.add_task(_bg_embed, "entry", entry.id, entry.text, db)
     return entry
 
 
@@ -779,6 +789,7 @@ class CreateQuestionRequest(BaseModel):
     answer: Optional[str] = None
     q_type: QuestionType = QuestionType.OTHER
     source: QuestionSource = QuestionSource.MOCK
+    category: QuestionCategory = QuestionCategory.INTERVIEW
     application_id: Optional[str] = None
     round: Optional[str] = None
     self_score: int = 0
@@ -809,6 +820,7 @@ def _question_to_dict(q: InterviewQuestion) -> dict:
         "answer": q.answer,
         "q_type": q.q_type.value,
         "source": q.source.value,
+        "category": q.category.value,
         "application_id": q.application_id,
         "round": q.round,
         "self_score": q.self_score,
@@ -826,12 +838,15 @@ def _question_to_dict(q: InterviewQuestion) -> dict:
 def list_questions(
     q_type: Optional[QuestionType] = None,
     source: Optional[QuestionSource] = None,
+    category: Optional[QuestionCategory] = None,
     application_id: Optional[str] = None,
     due_only: bool = False,
     db: Database = Depends(get_db),
 ):
     questions = db.get_questions(
-        q_type=q_type, source=source, application_id=application_id, due_only=due_only
+        q_type=q_type, source=source,
+        category=category.value if category else None,
+        application_id=application_id, due_only=due_only,
     )
     return [_question_to_dict(q) for q in questions]
 
@@ -852,6 +867,7 @@ def create_question(req: CreateQuestionRequest, db: Database = Depends(get_db)):
         answer=req.answer,
         q_type=req.q_type,
         source=req.source,
+        category=req.category,
         application_id=req.application_id,
         round=req.round,
         self_score=req.self_score,
@@ -1031,6 +1047,157 @@ async def import_image(
         entries.append(entry)
 
     return entries
+
+
+# ---------------------------------------------------------------------------
+# Related notes (vector similarity)
+# ---------------------------------------------------------------------------
+
+@app.get("/notes/{note_type}/{note_id}/related")
+def get_related_notes(note_type: str, note_id: str, limit: int = 5, db: Database = Depends(get_db)):
+    return db.get_related(note_type, note_id, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# AI Providers
+# ---------------------------------------------------------------------------
+
+class CreateProviderRequest(BaseModel):
+    name: str
+    provider_type: str
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: str
+
+
+class UpdateProviderRequest(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+
+@app.get("/providers", response_model=list[AIProvider])
+def list_providers(db: Database = Depends(get_db)):
+    return db.list_providers()
+
+
+@app.post("/providers", response_model=AIProvider, status_code=201)
+def create_provider(req: CreateProviderRequest, db: Database = Depends(get_db)):
+    provider = AIProvider(
+        id=str(uuid.uuid4()),
+        name=req.name,
+        provider_type=req.provider_type,
+        base_url=req.base_url,
+        api_key=req.api_key,
+        model=req.model,
+        is_active=False,
+        created_at=datetime.now(),
+    )
+    return db.create_provider(provider)
+
+
+@app.patch("/providers/{provider_id}", response_model=AIProvider)
+def update_provider(provider_id: str, req: UpdateProviderRequest, db: Database = Depends(get_db)):
+    updated = db.update_provider(provider_id, req.model_dump(exclude_none=True))
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    return updated
+
+
+@app.delete("/providers/{provider_id}", status_code=204)
+def delete_provider(provider_id: str, db: Database = Depends(get_db)):
+    p = db.get_provider(provider_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    if p.is_active:
+        raise HTTPException(status_code=409, detail="Cannot delete the active provider")
+    db.delete_provider(provider_id)
+
+
+@app.post("/providers/{provider_id}/activate", response_model=AIProvider)
+def activate_provider(provider_id: str, db: Database = Depends(get_db)):
+    p = db.get_provider(provider_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    db.activate_provider(provider_id)
+    return db.get_provider(provider_id)
+
+
+@app.post("/providers/{provider_id}/test")
+def test_provider(provider_id: str, db: Database = Depends(get_db)):
+    p = db.get_provider(provider_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    provider = providers.build_provider(
+        provider_type=p.provider_type,
+        model=p.model,
+        base_url=p.base_url,
+        api_key=p.api_key,
+    )
+    return provider.ping()
+
+
+# ---------------------------------------------------------------------------
+# Article → Questions
+# ---------------------------------------------------------------------------
+
+class GenerateQuestionsRequest(BaseModel):
+    url: Optional[str] = None
+    content: Optional[str] = None
+    mode: str = "study"
+    count: int = Field(default=6, ge=1, le=10)
+    extra_tags: list[str] = []
+
+    @field_validator("url", "content", mode="before")
+    @classmethod
+    def at_least_one(cls, v):
+        return v
+
+    def model_post_init(self, __context):
+        if not self.url and not self.content:
+            raise ValueError("one of url or content is required")
+
+
+@app.post("/articles/generate-questions")
+def generate_questions_from_article(
+    req: GenerateQuestionsRequest,
+    db: Database = Depends(get_db),
+):
+    import httpx
+    from bs4 import BeautifulSoup
+
+    if req.url:
+        resp = httpx.get(req.url, timeout=15, follow_redirects=True)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "header", "footer"]):
+            tag.decompose()
+        text = soup.get_text(separator=" ", strip=True)
+    else:
+        text = req.content
+
+    questions = ai.generate_questions_from_article(text, mode=req.mode, count=req.count)
+
+    ids = []
+    for q in questions:
+        follow_ups = q.get("follow_ups") or []
+        notes = json.dumps(follow_ups) if follow_ups else None
+        question = InterviewQuestion(
+            id=str(uuid.uuid4()),
+            question=q["question"],
+            answer=q.get("answer", ""),
+            q_type=QuestionType(q.get("q_type", "other")) if q.get("q_type") in QuestionType._value2member_map_ else QuestionType.OTHER,
+            source=QuestionSource.MOCK,
+            category=QuestionCategory.STUDY,
+            tags=["article", req.mode] + req.extra_tags,
+            notes=notes,
+            created_at=datetime.now(),
+        )
+        saved = db.create_question(question)
+        ids.append(saved.id)
+
+    return {"questions_created": len(ids), "question_ids": ids}
 
 
 # ---------------------------------------------------------------------------
