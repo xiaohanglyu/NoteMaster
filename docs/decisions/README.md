@@ -11,6 +11,7 @@ Key decisions made during development, with context and tradeoffs.
 | [005](005-single-file-pwa.md) | Single-file PWA frontend, no build step | Accepted |
 | [006](006-tdd-methodology.md) | Test-driven development | Accepted |
 | [007](007-vector-embeddings-association.md) | Lightweight knowledge association via vector embeddings | Accepted |
+| [008](008-product-identity-coach-not-knowledge-base.md) | NoteMaster is a learning coach, not a knowledge base | Accepted |
 
 ## How to add a new ADR
 

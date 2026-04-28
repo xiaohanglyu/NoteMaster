@@ -8,7 +8,11 @@ from notemaster.models import (
     Entry, EntryData, EntryType, EntryReviewRecord, EntryWithPriority,
     Application, ApplicationStatus, ApplicationRound,
     InterviewQuestion, QuestionType, QuestionSource, QuestionReviewRecord,
+    RoundType, RoundStatus,
     InboxItem, AIProvider,
+    DailyPlan, PlanTask, PlanBlock, PlanTaskType,
+    Source, SourceType,
+    Problem, ProblemType, ProblemDifficulty, ProblemReviewRecord,
 )
 
 _DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "notemaster.db"
@@ -57,6 +61,29 @@ class Database:
         if row and "category" not in row[0]:
             self.conn.execute(
                 "ALTER TABLE interview_questions ADD COLUMN category TEXT NOT NULL DEFAULT 'interview'"
+            )
+            self.conn.commit()
+
+        # interview_questions: add source_id column if missing
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='interview_questions'"
+        ).fetchone()
+        if row and "source_id" not in row[0]:
+            self.conn.execute(
+                "ALTER TABLE interview_questions ADD COLUMN source_id TEXT"
+            )
+            self.conn.commit()
+
+        # application_rounds: add round_type + status columns if missing
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='application_rounds'"
+        ).fetchone()
+        if row and "round_type" not in row[0]:
+            self.conn.execute("ALTER TABLE application_rounds ADD COLUMN round_type TEXT")
+            self.conn.commit()
+        if row and "status" not in row[0]:
+            self.conn.execute(
+                "ALTER TABLE application_rounds ADD COLUMN status TEXT NOT NULL DEFAULT 'scheduled'"
             )
             self.conn.commit()
 
@@ -207,6 +234,8 @@ class Database:
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 application_id  TEXT NOT NULL,
                 name            TEXT NOT NULL,
+                round_type      TEXT,
+                status          TEXT NOT NULL DEFAULT 'scheduled',
                 date            TEXT,
                 feedback        TEXT,
                 FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
@@ -228,6 +257,7 @@ class Database:
                 source          TEXT NOT NULL DEFAULT 'mock',
                 category        TEXT NOT NULL DEFAULT 'interview',
                 application_id  TEXT,
+                source_id       TEXT,
                 round           TEXT,
                 self_score      INTEGER NOT NULL DEFAULT 0,
                 tags            TEXT NOT NULL DEFAULT '[]',
@@ -237,7 +267,8 @@ class Database:
                 reps            INTEGER NOT NULL DEFAULT 0,
                 next_review_at  TEXT,
                 created_at      TEXT NOT NULL,
-                FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE SET NULL
+                FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE SET NULL,
+                FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS sync_log (
@@ -274,6 +305,42 @@ class Database:
                 model         TEXT NOT NULL,
                 is_active     INTEGER NOT NULL DEFAULT 0,
                 created_at    TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS plan_tasks (
+                id         TEXT PRIMARY KEY,
+                plan_date  TEXT NOT NULL,
+                block      TEXT NOT NULL,
+                task_type  TEXT NOT NULL,
+                title      TEXT NOT NULL,
+                url        TEXT,
+                ref_id     TEXT,
+                done       INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS problems (
+                id             TEXT PRIMARY KEY,
+                title          TEXT NOT NULL,
+                problem_type   TEXT NOT NULL,
+                difficulty     TEXT,
+                url            TEXT,
+                tags           TEXT NOT NULL DEFAULT '[]',
+                notes          TEXT,
+                ef             REAL NOT NULL DEFAULT 2.5,
+                interval       INTEGER NOT NULL DEFAULT 0,
+                reps           INTEGER NOT NULL DEFAULT 0,
+                next_review_at TEXT,
+                created_at     TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sources (
+                id             TEXT PRIMARY KEY,
+                title          TEXT NOT NULL,
+                source_type    TEXT NOT NULL,
+                source_ref     TEXT,
+                content_cache  TEXT,
+                tags           TEXT NOT NULL DEFAULT '[]',
+                created_at     TEXT NOT NULL
             );
         """)
 
@@ -859,22 +926,20 @@ class Database:
 
     # --- Application Rounds ---
 
-    def add_application_round(
-        self,
-        app_id: str,
-        name: str,
-        date: Optional[str] = None,
-        feedback: Optional[str] = None,
-    ) -> ApplicationRound:
+    def add_application_round(self, round: "ApplicationRound") -> "ApplicationRound":
         cur = self.conn.execute(
-            "INSERT INTO application_rounds (application_id, name, date, feedback) VALUES (?, ?, ?, ?)",
-            (app_id, name, date, feedback),
+            "INSERT INTO application_rounds (application_id, name, round_type, status, date, feedback) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (round.application_id, round.name,
+             round.round_type.value if round.round_type else None,
+             round.status.value if round.status else "scheduled",
+             round.date, round.feedback),
         )
         self.conn.commit()
-        return ApplicationRound(
-            id=cur.lastrowid, application_id=app_id, name=name,
-            date=date, feedback=feedback,
-        )
+        row = self.conn.execute(
+            "SELECT * FROM application_rounds WHERE id = ?", (cur.lastrowid,)
+        ).fetchone()
+        return _row_to_round(row)
 
     def get_application_rounds(self, app_id: str) -> list[ApplicationRound]:
         rows = self.conn.execute(
@@ -884,7 +949,7 @@ class Database:
         return [_row_to_round(r) for r in rows]
 
     def update_application_round(self, round_id: int, **kwargs) -> Optional[ApplicationRound]:
-        allowed = {"name", "date", "feedback"}
+        allowed = {"name", "date", "feedback", "round_type", "status"}
         updates, params = [], []
         for key, value in kwargs.items():
             if key in allowed:
@@ -912,13 +977,13 @@ class Database:
         self.conn.execute(
             """
             INSERT INTO interview_questions
-                (id, question, answer, q_type, source, category, application_id, round,
+                (id, question, answer, q_type, source, category, application_id, source_id, round,
                  self_score, tags, notes, ef, interval, reps, next_review_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 q.id, q.question, q.answer, q.q_type.value, q.source.value,
-                q.category.value, q.application_id, q.round, q.self_score,
+                q.category.value, q.application_id, q.source_id, q.round, q.self_score,
                 json.dumps(q.tags), q.notes, q.ef, q.interval, q.reps,
                 q.next_review_at.isoformat() if q.next_review_at else None,
                 q.created_at.isoformat(),
@@ -1309,6 +1374,300 @@ class Database:
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
+    # ---------------------------------------------------------------------------
+    # Daily plan
+    # ---------------------------------------------------------------------------
+
+    def save_plan(self, plan: DailyPlan) -> None:
+        self.conn.execute("DELETE FROM plan_tasks WHERE plan_date = ?", (plan.date,))
+        for t in plan.tasks:
+            self.conn.execute(
+                "INSERT INTO plan_tasks (id, plan_date, block, task_type, title, url, ref_id, done) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (t.id, t.plan_date, t.block, t.task_type, t.title, t.url, t.ref_id, int(t.done)),
+            )
+        self.conn.commit()
+
+    def get_plan(self, date: str) -> Optional[DailyPlan]:
+        rows = self.conn.execute(
+            "SELECT * FROM plan_tasks WHERE plan_date = ? ORDER BY rowid", (date,)
+        ).fetchall()
+        if not rows:
+            return None
+        tasks = [
+            PlanTask(
+                id=r["id"], plan_date=r["plan_date"],
+                block=PlanBlock(r["block"]), task_type=PlanTaskType(r["task_type"]),
+                title=r["title"], url=r["url"], ref_id=r["ref_id"],
+                done=bool(r["done"]),
+            )
+            for r in rows
+        ]
+        return DailyPlan(date=date, tasks=tasks)
+
+    def toggle_plan_task(self, task_id: str, done: bool) -> None:
+        self.conn.execute(
+            "UPDATE plan_tasks SET done = ? WHERE id = ?", (int(done), task_id)
+        )
+        self.conn.commit()
+
+    # --- Problems ---
+
+    def create_problem(self, p: Problem) -> Problem:
+        import json
+        self.conn.execute(
+            "INSERT INTO problems (id, title, problem_type, difficulty, url, tags, notes, "
+            "ef, interval, reps, next_review_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (p.id, p.title, p.problem_type.value,
+             p.difficulty.value if p.difficulty else None,
+             p.url, json.dumps(p.tags), p.notes,
+             p.ef, p.interval, p.reps,
+             p.next_review_at.isoformat() if p.next_review_at else None,
+             p.created_at.isoformat()),
+        )
+        self.conn.commit()
+        return p
+
+    def get_problem(self, problem_id: str) -> Optional[Problem]:
+        row = self.conn.execute(
+            "SELECT * FROM problems WHERE id = ?", (problem_id,)
+        ).fetchone()
+        return _row_to_problem(row) if row else None
+
+    def list_problems(
+        self,
+        problem_type: Optional[ProblemType] = None,
+        due_only: bool = False,
+    ) -> list[Problem]:
+        clauses, params = [], []
+        if problem_type:
+            clauses.append("problem_type = ?")
+            params.append(problem_type.value)
+        if due_only:
+            now = datetime.now().isoformat()
+            clauses.append("(next_review_at IS NULL OR next_review_at <= ?)")
+            params.append(now)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.conn.execute(
+            f"SELECT * FROM problems {where} ORDER BY created_at DESC", params
+        ).fetchall()
+        return [_row_to_problem(r) for r in rows]
+
+    def update_problem(self, problem_id: str, **kwargs) -> Optional[Problem]:
+        import json
+        allowed = {"title", "difficulty", "url", "tags", "notes"}
+        updates, params = [], []
+        for key, value in kwargs.items():
+            if key not in allowed:
+                continue
+            updates.append(f"{key} = ?")
+            if key == "tags":
+                params.append(json.dumps(value))
+            elif key == "difficulty" and isinstance(value, ProblemDifficulty):
+                params.append(value.value)
+            else:
+                params.append(value)
+        if not updates:
+            return self.get_problem(problem_id)
+        params.append(problem_id)
+        self.conn.execute(
+            f"UPDATE problems SET {', '.join(updates)} WHERE id = ?", params
+        )
+        self.conn.commit()
+        return self.get_problem(problem_id)
+
+    def delete_problem(self, problem_id: str) -> bool:
+        cur = self.conn.execute("DELETE FROM problems WHERE id = ?", (problem_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def record_problem_review(self, problem_id: str, grade: int) -> ProblemReviewRecord:
+        p = self.get_problem(problem_id)
+        if p is None:
+            raise ValueError(f"Problem {problem_id} not found")
+        ef, interval, reps = p.ef, p.interval, p.reps
+        if grade >= 2:
+            if reps == 0:
+                interval = 1
+            elif reps == 1:
+                interval = 3
+            else:
+                interval = round(interval * ef)
+            reps += 1
+            ef = max(1.3, ef + 0.1 - (3 - grade) * (0.08 + (3 - grade) * 0.02))
+        else:
+            reps = 0
+            interval = 1
+        now = datetime.now()
+        next_review = now + timedelta(days=interval)
+        self.conn.execute(
+            "UPDATE problems SET ef = ?, interval = ?, reps = ?, next_review_at = ? WHERE id = ?",
+            (ef, interval, reps, next_review.isoformat(), problem_id),
+        )
+        self.conn.commit()
+        return ProblemReviewRecord(
+            problem_id=problem_id, grade=grade,
+            reviewed_at=now, next_review_at=next_review,
+            interval=interval, reps=reps, ef=ef,
+        )
+
+    def get_next_due_problem(
+        self, problem_type: Optional[ProblemType] = None
+    ) -> Optional[Problem]:
+        now = datetime.now().isoformat()
+        clauses = ["(next_review_at IS NULL OR next_review_at <= ?)"]
+        params: list = [now]
+        if problem_type:
+            clauses.append("problem_type = ?")
+            params.append(problem_type.value)
+        where = "WHERE " + " AND ".join(clauses)
+        row = self.conn.execute(
+            f"SELECT * FROM problems {where} ORDER BY next_review_at ASC LIMIT 1", params
+        ).fetchone()
+        return _row_to_problem(row) if row else None
+
+    def seed_curriculum(self) -> dict:
+        existing = {p.title for p in self.list_problems()}
+
+        _SD = [
+            # Easy
+            ("Design Bitly", "easy", "https://www.hellointerview.com/learn/system-design/in-a-hurry/bitly"),
+            ("Design Dropbox", "easy", "https://www.hellointerview.com/learn/system-design/in-a-hurry/dropbox"),
+            ("Design Local Delivery Service", "easy", "https://www.hellointerview.com/learn/system-design/in-a-hurry/local-delivery-service"),
+            ("Design News Aggregator", "easy", "https://www.hellointerview.com/learn/system-design/in-a-hurry/news-aggregator"),
+            # Medium
+            ("Design Ticketmaster", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/ticketmaster"),
+            ("Design Facebook News Feed", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/fb-news-feed"),
+            ("Design Tinder", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/tinder"),
+            ("Design WhatsApp", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/whatsapp"),
+            ("Design Yelp", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/yelp"),
+            ("Design Strava", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/strava"),
+            ("Design Rate Limiter", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/rate-limiter"),
+            ("Design Online Auction", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/online-auction"),
+            ("Design Facebook Live Comments", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/fb-live-comments"),
+            ("Design Facebook Post Search", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/fb-post-search"),
+            ("Design Price Tracking Service", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/price-tracking"),
+            ("Design Twitter", "medium", "https://www.hellointerview.com/learn/system-design/in-a-hurry/twitter"),
+            # Hard
+            ("Design Instagram", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/instagram"),
+            ("Design YouTube Top K", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/youtube-top-k"),
+            ("Design Uber", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/uber"),
+            ("Design Robinhood", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/robinhood"),
+            ("Design Google Docs", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/google-docs"),
+            ("Design Distributed Cache", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/distributed-cache"),
+            ("Design YouTube", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/youtube"),
+            ("Design Job Scheduler", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/job-scheduler"),
+            ("Design Web Crawler", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/web-crawler"),
+            ("Design Ad Click Aggregator", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/ad-click-aggregator"),
+            ("Design Payment System", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/payment-system"),
+            ("Design Metrics Monitoring", "hard", "https://www.hellointerview.com/learn/system-design/in-a-hurry/metrics-monitoring"),
+        ]
+
+        _LLD = [
+            ("Design a Parking Lot", None, "https://www.hellointerview.com/learn/system-design/in-a-hurry/lld-parking-lot"),
+            ("Design an Elevator System", None, "https://www.hellointerview.com/learn/system-design/in-a-hurry/lld-elevator"),
+            ("Design a Library Management System", None, None),
+            ("Design a Vending Machine", None, None),
+            ("Design an ATM", None, None),
+            ("Design a Chess Game", None, None),
+            ("Design a Hotel Management System", None, None),
+            ("Design a Ride-Sharing Service (LLD)", None, None),
+            ("Design a Food Ordering System", None, None),
+            ("Design an Online Shopping Cart", None, None),
+        ]
+
+        _CODING = [
+            ("Arrays & Hashing", None, "https://neetcode.io/roadmap"),
+            ("Two Pointers", None, "https://neetcode.io/roadmap"),
+            ("Sliding Window", None, "https://neetcode.io/roadmap"),
+            ("Stack", None, "https://neetcode.io/roadmap"),
+            ("Binary Search", None, "https://neetcode.io/roadmap"),
+            ("Linked List", None, "https://neetcode.io/roadmap"),
+            ("Trees", None, "https://neetcode.io/roadmap"),
+            ("Tries", None, "https://neetcode.io/roadmap"),
+            ("Heap / Priority Queue", None, "https://neetcode.io/roadmap"),
+            ("Backtracking", None, "https://neetcode.io/roadmap"),
+            ("Graphs", None, "https://neetcode.io/roadmap"),
+            ("Advanced Graphs", None, "https://neetcode.io/roadmap"),
+            ("1-D Dynamic Programming", None, "https://neetcode.io/roadmap"),
+            ("2-D Dynamic Programming", None, "https://neetcode.io/roadmap"),
+            ("Greedy", None, "https://neetcode.io/roadmap"),
+            ("Intervals", None, "https://neetcode.io/roadmap"),
+            ("Math & Geometry", None, "https://neetcode.io/roadmap"),
+            ("Bit Manipulation", None, "https://neetcode.io/roadmap"),
+        ]
+
+        added = {"sd": 0, "lld": 0, "coding": 0}
+        import uuid as _uuid
+
+        for title, diff, url in _SD:
+            if title not in existing:
+                self.create_problem(Problem(
+                    id=str(_uuid.uuid4()), title=title,
+                    problem_type=ProblemType.SD,
+                    difficulty=ProblemDifficulty(diff) if diff else None,
+                    url=url, created_at=datetime.now(),
+                ))
+                added["sd"] += 1
+
+        for title, diff, url in _LLD:
+            if title not in existing:
+                self.create_problem(Problem(
+                    id=str(_uuid.uuid4()), title=title,
+                    problem_type=ProblemType.LLD,
+                    difficulty=ProblemDifficulty(diff) if diff else None,
+                    url=url, created_at=datetime.now(),
+                ))
+                added["lld"] += 1
+
+        for title, diff, url in _CODING:
+            if title not in existing:
+                self.create_problem(Problem(
+                    id=str(_uuid.uuid4()), title=title,
+                    problem_type=ProblemType.CODING,
+                    difficulty=ProblemDifficulty(diff) if diff else None,
+                    url=url, created_at=datetime.now(),
+                ))
+                added["coding"] += 1
+
+        return added
+
+    # --- Sources ---
+
+    def create_source(self, s: "Source") -> "Source":
+        import json
+        self.conn.execute(
+            "INSERT INTO sources (id, title, source_type, source_ref, content_cache, tags, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (s.id, s.title, s.source_type.value, s.source_ref, s.content_cache,
+             json.dumps(s.tags), s.created_at.isoformat()),
+        )
+        self.conn.commit()
+        return s
+
+    def get_source(self, source_id: str) -> "Optional[Source]":
+        row = self.conn.execute(
+            "SELECT * FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
+        return _row_to_source(row) if row else None
+
+    def list_sources(self) -> "list[Source]":
+        rows = self.conn.execute(
+            "SELECT * FROM sources ORDER BY created_at DESC"
+        ).fetchall()
+        return [_row_to_source(r) for r in rows]
+
+    def delete_source(self, source_id: str) -> None:
+        self.conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+        self.conn.commit()
+
+    def get_questions_by_source(self, source_id: str) -> list:
+        rows = self.conn.execute(
+            "SELECT * FROM interview_questions WHERE source_id = ? ORDER BY created_at DESC",
+            (source_id,),
+        ).fetchall()
+        return [_row_to_question(r) for r in rows]
+
 
 def _row_to_highlight(row: sqlite3.Row) -> Highlight:
     return Highlight(
@@ -1340,10 +1699,15 @@ def _row_to_application(row: sqlite3.Row) -> Application:
 
 
 def _row_to_round(row: sqlite3.Row) -> ApplicationRound:
+    keys = row.keys()
+    round_type = RoundType(row["round_type"]) if "round_type" in keys and row["round_type"] else None
+    status_val = row["status"] if "status" in keys and row["status"] else "scheduled"
     return ApplicationRound(
         id=row["id"],
         application_id=row["application_id"],
         name=row["name"],
+        round_type=round_type,
+        status=RoundStatus(status_val),
         date=row["date"],
         feedback=row["feedback"],
     )
@@ -1360,6 +1724,7 @@ def _row_to_question(row: sqlite3.Row) -> InterviewQuestion:
         source=QuestionSource(row["source"]),
         category=QuestionCategory(row["category"]) if row["category"] else QuestionCategory.INTERVIEW,
         application_id=row["application_id"],
+        source_id=row["source_id"] if "source_id" in row.keys() else None,
         round=row["round"],
         self_score=row["self_score"],
         tags=json.loads(row["tags"]),
@@ -1368,6 +1733,37 @@ def _row_to_question(row: sqlite3.Row) -> InterviewQuestion:
         interval=row["interval"],
         reps=row["reps"],
         next_review_at=datetime.fromisoformat(row["next_review_at"]) if row["next_review_at"] else None,
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def _row_to_problem(row: sqlite3.Row) -> Problem:
+    import json
+    return Problem(
+        id=row["id"],
+        title=row["title"],
+        problem_type=ProblemType(row["problem_type"]),
+        difficulty=ProblemDifficulty(row["difficulty"]) if row["difficulty"] else None,
+        url=row["url"],
+        tags=json.loads(row["tags"] or "[]"),
+        notes=row["notes"],
+        ef=row["ef"],
+        interval=row["interval"],
+        reps=row["reps"],
+        next_review_at=datetime.fromisoformat(row["next_review_at"]) if row["next_review_at"] else None,
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def _row_to_source(row: sqlite3.Row) -> Source:
+    import json
+    return Source(
+        id=row["id"],
+        title=row["title"],
+        source_type=SourceType(row["source_type"]),
+        source_ref=row["source_ref"],
+        content_cache=row["content_cache"],
+        tags=json.loads(row["tags"] or "[]"),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 

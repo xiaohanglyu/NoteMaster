@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from notemaster.db import Database
 from notemaster.models import (
-    Application, ApplicationStatus,
+    Application, ApplicationStatus, ApplicationRound,
     InterviewQuestion, QuestionType, QuestionSource,
 )
 
@@ -100,12 +100,12 @@ def migrate(export_path: str, dry_run: bool = False) -> dict:
         if not dry_run:
             db.create_application(app_obj)
             for r in a.get("rounds", []):
-                db.add_application_round(
-                    app_id,
+                db.add_application_round(ApplicationRound(
+                    application_id=app_id,
                     name=r.get("name", "Round"),
                     date=r.get("date") or None,
                     feedback=r.get("feedback") or None,
-                )
+                ))
                 rounds_imported += 1
 
         apps_imported += 1

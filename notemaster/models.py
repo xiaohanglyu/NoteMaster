@@ -130,6 +130,19 @@ class EntryType(str, Enum):
     OCR = "ocr"
 
 
+class EntryRegister(str, Enum):
+    FORMAL = "formal"
+    INFORMAL = "informal"
+    COLLOQUIAL = "colloquial"
+    SLANG = "slang"
+
+
+class EntryContentType(str, Enum):
+    SPOKEN = "spoken"
+    WRITTEN = "written"
+    BOTH = "both"
+
+
 class EntryData(BaseModel):
     phonetics: Optional[str] = None
     translation: Optional[str] = None
@@ -140,6 +153,8 @@ class EntryData(BaseModel):
     root: Optional[str] = None
     synonyms: list[str] = []
     derivatives: list[str] = []
+    usage_register: Optional[str] = None
+    content_type: Optional[str] = None
 
 
 class Entry(BaseModel):
@@ -218,10 +233,28 @@ class ApplicationStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class RoundType(str, Enum):
+    HR_SCREEN = "hr_screen"
+    MANAGER_SCREEN = "manager_screen"
+    BEHAVIORAL = "behavioral"
+    CODING = "coding"
+    SYSTEM_DESIGN = "system_design"
+    LLD = "lld"
+
+
+class RoundStatus(str, Enum):
+    SCHEDULED = "scheduled"
+    COMPLETED = "completed"
+    PASSED = "passed"
+    FAILED = "failed"
+
+
 class ApplicationRound(BaseModel):
     id: Optional[int] = None
     application_id: str
     name: str
+    round_type: Optional[RoundType] = None
+    status: RoundStatus = RoundStatus.SCHEDULED
     date: Optional[str] = None
     feedback: Optional[str] = None
 
@@ -266,6 +299,7 @@ class InterviewQuestion(BaseModel):
     source: QuestionSource = QuestionSource.MOCK
     category: QuestionCategory = QuestionCategory.INTERVIEW
     application_id: Optional[str] = None
+    source_id: Optional[str] = None
     round: Optional[str] = None
     self_score: int = 0
     tags: list[str] = []
@@ -287,6 +321,67 @@ class QuestionReviewRecord(BaseModel):
     ef: float
 
 
+# ---------------------------------------------------------------------------
+# Problems (SD / LLD / Coding curriculum)
+# ---------------------------------------------------------------------------
+
+class ProblemType(str, Enum):
+    SD = "sd"
+    LLD = "lld"
+    CODING = "coding"
+
+
+class ProblemDifficulty(str, Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
+
+class Problem(BaseModel):
+    id: str
+    title: str
+    problem_type: ProblemType
+    difficulty: Optional[ProblemDifficulty] = None
+    url: Optional[str] = None
+    tags: list[str] = []
+    notes: Optional[str] = None
+    ef: float = 2.5
+    interval: int = 0
+    reps: int = 0
+    next_review_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class ProblemReviewRecord(BaseModel):
+    problem_id: str
+    grade: int
+    reviewed_at: datetime
+    next_review_at: datetime
+    interval: int
+    reps: int
+    ef: float
+
+
+# ---------------------------------------------------------------------------
+# Source document
+# ---------------------------------------------------------------------------
+
+class SourceType(str, Enum):
+    URL = "url"
+    FILE = "file"
+    TEXT = "text"
+
+
+class Source(BaseModel):
+    id: str
+    title: str
+    source_type: SourceType
+    source_ref: Optional[str] = None
+    content_cache: Optional[str] = None
+    tags: list[str] = []
+    created_at: datetime
+
+
 class AIProvider(BaseModel):
     id: str
     name: str
@@ -296,3 +391,36 @@ class AIProvider(BaseModel):
     model: str
     is_active: bool = False
     created_at: datetime
+
+
+class PlanBlock(str, Enum):
+    MORNING = "morning"
+    AFTERNOON = "afternoon"
+    EVENING = "evening"
+
+
+class PlanTaskType(str, Enum):
+    SD = "sd"
+    LLD = "lld"
+    CODING = "coding"
+    BEHAVIORAL = "behavioral"
+    ENGLISH = "english"
+    INBOX = "inbox"
+    JOBS = "jobs"
+    CUSTOM = "custom"
+
+
+class PlanTask(BaseModel):
+    id: str
+    plan_date: str
+    block: PlanBlock
+    task_type: PlanTaskType
+    title: str
+    url: Optional[str] = None
+    ref_id: Optional[str] = None
+    done: bool = False
+
+
+class DailyPlan(BaseModel):
+    date: str
+    tasks: list[PlanTask] = []

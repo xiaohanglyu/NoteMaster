@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, Form, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from typing import Annotated
@@ -14,9 +14,12 @@ from notemaster.models import (
     Book, Concept, ConceptEdge, RelationType, ConceptWithPriority,
     EvaluationResult, StudySession, Score,
     Entry, EntryData, EntryType, PronunciationResult,
-    Application, ApplicationStatus, ApplicationRound,
+    Application, ApplicationStatus, ApplicationRound, RoundType, RoundStatus,
     InterviewQuestion, QuestionType, QuestionSource, QuestionCategory, QuestionReviewRecord,
     InboxItem, InboxClassification, AIProvider,
+    DailyPlan, PlanTask, PlanBlock, PlanTaskType,
+    Source, SourceType,
+    Problem, ProblemType, ProblemDifficulty, ProblemReviewRecord,
 )
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
@@ -663,12 +666,16 @@ class UpdateApplicationRequest(BaseModel):
 
 class AddRoundRequest(BaseModel):
     name: str
+    round_type: Optional[RoundType] = None
+    status: RoundStatus = RoundStatus.SCHEDULED
     date: Optional[str] = None
     feedback: Optional[str] = None
 
 
 class UpdateRoundRequest(BaseModel):
     name: Optional[str] = None
+    round_type: Optional[RoundType] = None
+    status: Optional[RoundStatus] = None
     date: Optional[str] = None
     feedback: Optional[str] = None
 
@@ -767,9 +774,11 @@ def delete_application(app_id: str, db: Database = Depends(get_db)):
 def add_round(app_id: str, req: AddRoundRequest, db: Database = Depends(get_db)):
     if db.get_application(app_id) is None:
         raise HTTPException(status_code=404, detail="Application not found")
-    r = db.add_application_round(app_id, name=req.name, date=req.date, feedback=req.feedback)
-    return {"id": r.id, "application_id": r.application_id, "name": r.name,
-            "date": r.date, "feedback": r.feedback}
+    r = db.add_application_round(ApplicationRound(
+        application_id=app_id, name=req.name, round_type=req.round_type,
+        status=req.status, date=req.date, feedback=req.feedback,
+    ))
+    return r
 
 
 @app.patch("/applications/{app_id}/rounds/{round_id}")
@@ -778,8 +787,7 @@ def update_round(app_id: str, round_id: int, req: UpdateRoundRequest, db: Databa
     r = db.update_application_round(round_id, **updates)
     if r is None:
         raise HTTPException(status_code=404, detail="Round not found")
-    return {"id": r.id, "application_id": r.application_id, "name": r.name,
-            "date": r.date, "feedback": r.feedback}
+    return r
 
 
 # --- Questions ---
@@ -986,6 +994,53 @@ def review_question(question_id: str, req: ReviewQuestionRequest, db: Database =
         raise HTTPException(status_code=404, detail="Question not found")
 
 
+@app.post("/questions/{question_id}/shadow")
+async def shadow_question(
+    question_id: str,
+    audio: UploadFile = File(...),
+    db: Database = Depends(get_db),
+):
+    q = db.get_question(question_id)
+    if q is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    reference = q.answer or q.question
+    audio_bytes = await audio.read()
+    transcript = stt.transcribe(audio_bytes, mime_type=audio.content_type or "audio/webm")
+    from notemaster import pronunciation
+    result = pronunciation.assess_shadow(reference, transcript)
+    return {
+        "transcript": transcript,
+        "overall_score": result.overall_score,
+        "words": [{"reference": w.reference, "heard": w.heard, "status": w.status} for w in result.words],
+        "feedback": result.feedback,
+    }
+
+
+@app.post("/entries/{entry_id}/shadow")
+async def shadow_entry(
+    entry_id: str,
+    audio: UploadFile = File(...),
+    db: Database = Depends(get_db),
+):
+    entry = db.get_entry(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    reference = entry.text
+    if entry.data and entry.data.examples:
+        reference = entry.data.examples[0]
+    audio_bytes = await audio.read()
+    transcript = stt.transcribe(audio_bytes, mime_type=audio.content_type or "audio/webm")
+    from notemaster import pronunciation
+    result = pronunciation.assess_shadow(reference, transcript)
+    return {
+        "transcript": transcript,
+        "reference": reference,
+        "overall_score": result.overall_score,
+        "words": [{"reference": w.reference, "heard": w.heard, "status": w.status} for w in result.words],
+        "feedback": result.feedback,
+    }
+
+
 # --- Import: file ---
 
 class ImportFileResponse(BaseModel):
@@ -1145,6 +1200,7 @@ def test_provider(provider_id: str, db: Database = Depends(get_db)):
 class GenerateQuestionsRequest(BaseModel):
     url: Optional[str] = None
     content: Optional[str] = None
+    title: Optional[str] = None
     mode: str = "study"
     count: int = Field(default=6, ge=1, le=10)
     extra_tags: list[str] = []
@@ -1179,6 +1235,18 @@ def generate_questions_from_article(
 
     questions = ai.generate_questions_from_article(text, mode=req.mode, count=req.count)
 
+    source_title = req.title or (req.url or "Pasted article")
+    source = Source(
+        id=str(uuid.uuid4()),
+        title=source_title,
+        source_type=SourceType.URL if req.url else SourceType.TEXT,
+        source_ref=req.url,
+        content_cache=text[:4000] if req.content else None,
+        tags=req.extra_tags,
+        created_at=datetime.now(),
+    )
+    db.create_source(source)
+
     ids = []
     for q in questions:
         follow_ups = q.get("follow_ups") or []
@@ -1190,6 +1258,7 @@ def generate_questions_from_article(
             q_type=QuestionType(q.get("q_type", "other")) if q.get("q_type") in QuestionType._value2member_map_ else QuestionType.OTHER,
             source=QuestionSource.MOCK,
             category=QuestionCategory.STUDY,
+            source_id=source.id,
             tags=["article", req.mode] + req.extra_tags,
             notes=notes,
             created_at=datetime.now(),
@@ -1198,6 +1267,133 @@ def generate_questions_from_article(
         ids.append(saved.id)
 
     return {"questions_created": len(ids), "question_ids": ids}
+
+
+# ---------------------------------------------------------------------------
+# Problems (SD / LLD / Coding)
+# ---------------------------------------------------------------------------
+
+class CreateProblemRequest(BaseModel):
+    title: str
+    problem_type: ProblemType
+    difficulty: Optional[ProblemDifficulty] = None
+    url: Optional[str] = None
+    tags: list[str] = []
+    notes: Optional[str] = None
+
+
+class UpdateProblemRequest(BaseModel):
+    title: Optional[str] = None
+    difficulty: Optional[ProblemDifficulty] = None
+    url: Optional[str] = None
+    tags: Optional[list[str]] = None
+    notes: Optional[str] = None
+
+
+class ProblemReviewRequest(BaseModel):
+    grade: Annotated[int, Field(ge=0, le=5)]
+
+
+@app.get("/problems")
+def list_problems(
+    problem_type: Optional[ProblemType] = None,
+    due_only: bool = False,
+    db: Database = Depends(get_db),
+):
+    return db.list_problems(problem_type=problem_type, due_only=due_only)
+
+
+@app.post("/problems", status_code=201)
+def create_problem(req: CreateProblemRequest, db: Database = Depends(get_db)):
+    problem = Problem(
+        id=str(uuid.uuid4()),
+        title=req.title,
+        problem_type=req.problem_type,
+        difficulty=req.difficulty,
+        url=req.url,
+        tags=req.tags,
+        notes=req.notes,
+        created_at=datetime.now(),
+    )
+    return db.create_problem(problem)
+
+
+@app.get("/problems/{problem_id}")
+def get_problem(problem_id: str, db: Database = Depends(get_db)):
+    p = db.get_problem(problem_id)
+    if p is None:
+        raise HTTPException(404)
+    return p
+
+
+@app.patch("/problems/{problem_id}")
+def update_problem(problem_id: str, req: UpdateProblemRequest, db: Database = Depends(get_db)):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    result = db.update_problem(problem_id, **updates)
+    if result is None:
+        raise HTTPException(404)
+    return result
+
+
+@app.delete("/problems/{problem_id}", status_code=204)
+def delete_problem(problem_id: str, db: Database = Depends(get_db)):
+    if not db.delete_problem(problem_id):
+        raise HTTPException(404)
+
+
+@app.post("/problems/{problem_id}/review")
+def review_problem(problem_id: str, req: ProblemReviewRequest, db: Database = Depends(get_db)):
+    try:
+        return db.record_problem_review(problem_id, grade=req.grade)
+    except ValueError:
+        raise HTTPException(404)
+
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+
+class CreateSourceRequest(BaseModel):
+    title: str
+    source_type: str
+    source_ref: Optional[str] = None
+    content: Optional[str] = None
+    tags: list[str] = []
+
+
+@app.get("/sources")
+def list_sources(db: Database = Depends(get_db)):
+    return db.list_sources()
+
+
+@app.post("/sources", status_code=201)
+def create_source(req: CreateSourceRequest, db: Database = Depends(get_db)):
+    if req.source_type not in SourceType._value2member_map_:
+        raise HTTPException(422, "invalid source_type")
+    source = Source(
+        id=str(uuid.uuid4()),
+        title=req.title,
+        source_type=SourceType(req.source_type),
+        source_ref=req.source_ref,
+        content_cache=req.content,
+        tags=req.tags,
+        created_at=datetime.now(),
+    )
+    return db.create_source(source)
+
+
+@app.delete("/sources/{source_id}", status_code=204)
+def delete_source(source_id: str, db: Database = Depends(get_db)):
+    if db.get_source(source_id) is None:
+        raise HTTPException(404)
+    db.delete_source(source_id)
+
+
+@app.get("/sources/{source_id}/questions")
+def get_source_questions(source_id: str, db: Database = Depends(get_db)):
+    if db.get_source(source_id) is None:
+        raise HTTPException(404)
+    return db.get_questions_by_source(source_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1324,6 +1520,128 @@ def route_inbox_item(
 
     db.mark_inbox_processed(item_id)
     return {"routed_to": req.item_type, "created_id": created_id}
+
+
+# ---------------------------------------------------------------------------
+# Daily Plan
+# ---------------------------------------------------------------------------
+
+def _generate_plan(date: str, db: Database) -> DailyPlan:
+    tasks: list[PlanTask] = []
+
+    # Morning: SD problem due for review
+    sd_problem = db.get_next_due_problem(problem_type=ProblemType.SD)
+    if sd_problem:
+        tasks.append(PlanTask(
+            id=str(uuid.uuid4()), plan_date=date, block=PlanBlock.MORNING,
+            task_type=PlanTaskType.SD, title=sd_problem.title, ref_id=sd_problem.id,
+            url=sd_problem.url,
+        ))
+
+    # Morning: LLD problem due for review
+    lld_problem = db.get_next_due_problem(problem_type=ProblemType.LLD)
+    if lld_problem:
+        tasks.append(PlanTask(
+            id=str(uuid.uuid4()), plan_date=date, block=PlanBlock.MORNING,
+            task_type=PlanTaskType.LLD, title=lld_problem.title, ref_id=lld_problem.id,
+            url=lld_problem.url,
+        ))
+
+    # Morning: Coding (LeetCode) problem due
+    coding_problem = db.get_next_due_problem(problem_type=ProblemType.CODING)
+    if coding_problem:
+        tasks.append(PlanTask(
+            id=str(uuid.uuid4()), plan_date=date, block=PlanBlock.MORNING,
+            task_type=PlanTaskType.CODING, title=coding_problem.title, ref_id=coding_problem.id,
+            url=coding_problem.url,
+        ))
+
+    # If no problem-based morning tasks, fall back to study questions
+    if not tasks:
+        study_qs = db.get_questions(category="study")[:2]
+        for q in study_qs[:1]:
+            tasks.append(PlanTask(
+                id=str(uuid.uuid4()), plan_date=date, block=PlanBlock.MORNING,
+                task_type=PlanTaskType.SD if q.q_type.value == "system_design" else PlanTaskType.BEHAVIORAL,
+                title=q.question[:80], ref_id=q.id,
+            ))
+
+    # Afternoon: English vocabulary review
+    due_entries = db.list_entries_due(limit=6)
+    if due_entries:
+        count = len(due_entries)
+        tasks.append(PlanTask(
+            id=str(uuid.uuid4()), plan_date=date, block=PlanBlock.AFTERNOON,
+            task_type=PlanTaskType.ENGLISH,
+            title=f"Review {count} vocabulary items",
+        ))
+
+    # Afternoon: inbox processing
+    pending = db.get_inbox_pending_count()
+    if pending > 0:
+        tasks.append(PlanTask(
+            id=str(uuid.uuid4()), plan_date=date, block=PlanBlock.AFTERNOON,
+            task_type=PlanTaskType.INBOX,
+            title=f"Process {pending} inbox items",
+        ))
+
+    # Evening: job applications follow-up
+    apps = db.list_applications()
+    active_apps = [a for a in apps if a.status.value not in ("offer", "rejected")]
+    if active_apps:
+        tasks.append(PlanTask(
+            id=str(uuid.uuid4()), plan_date=date, block=PlanBlock.EVENING,
+            task_type=PlanTaskType.JOBS,
+            title=f"Follow up on {len(active_apps)} active applications",
+        ))
+
+    # If no tasks were generated, add a default behavioral task
+    if not tasks:
+        tasks.append(PlanTask(
+            id=str(uuid.uuid4()), plan_date=date, block=PlanBlock.MORNING,
+            task_type=PlanTaskType.BEHAVIORAL,
+            title="Prepare a behavioral answer (STAR format)",
+        ))
+
+    return DailyPlan(date=date, tasks=tasks)
+
+
+class ToggleTaskRequest(BaseModel):
+    done: bool
+
+
+@app.get("/plan/today")
+def get_today_plan(db: Database = Depends(get_db)):
+    today = datetime.now().strftime("%Y-%m-%d")
+    plan = db.get_plan(today)
+    if plan is None:
+        plan = _generate_plan(today, db)
+        db.save_plan(plan)
+    return plan
+
+
+@app.post("/plan/tasks/{task_id}/toggle")
+def toggle_task(task_id: str, req: ToggleTaskRequest, db: Database = Depends(get_db)):
+    db.toggle_plan_task(task_id, done=req.done)
+    return {"ok": True}
+
+
+@app.post("/plan/regenerate")
+def regenerate_plan(db: Database = Depends(get_db)):
+    today = datetime.now().strftime("%Y-%m-%d")
+    plan = _generate_plan(today, db)
+    db.save_plan(plan)
+    return plan
+
+
+# ---------------------------------------------------------------------------
+# Admin utilities
+# ---------------------------------------------------------------------------
+
+@app.post("/admin/seed-curriculum")
+def seed_curriculum(db: Database = Depends(get_db)):
+    result = db.seed_curriculum()
+    return {"seeded": result}
 
 
 # Serve frontend — must be mounted after all API routes

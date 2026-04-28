@@ -92,27 +92,27 @@ class TestApplicationCrud:
 class TestApplicationRounds:
     def test_add_round(self, db, app):
         db.create_application(app)
-        r = db.add_application_round(app.id, name="Phone Screen", date="2026-04-10", feedback="Went well")
+        r = db.add_application_round(ApplicationRound(application_id=app.id, name="Phone Screen", date="2026-04-10", feedback="Went well"))
         assert r.id is not None
         assert r.name == "Phone Screen"
         assert r.application_id == app.id
 
     def test_get_rounds(self, db, app):
         db.create_application(app)
-        db.add_application_round(app.id, name="Phone Screen")
-        db.add_application_round(app.id, name="Technical")
+        db.add_application_round(ApplicationRound(application_id=app.id, name="Phone Screen"))
+        db.add_application_round(ApplicationRound(application_id=app.id, name="Technical"))
         rounds = db.get_application_rounds(app.id)
         assert len(rounds) == 2
 
     def test_update_round(self, db, app):
         db.create_application(app)
-        r = db.add_application_round(app.id, name="Phone Screen")
+        r = db.add_application_round(ApplicationRound(application_id=app.id, name="Phone Screen"))
         updated = db.update_application_round(r.id, feedback="Strong hire")
         assert updated.feedback == "Strong hire"
 
     def test_delete_application_cascades_rounds(self, db, app):
         db.create_application(app)
-        db.add_application_round(app.id, name="Phone Screen")
+        db.add_application_round(ApplicationRound(application_id=app.id, name="Phone Screen"))
         db.delete_application(app.id)
         assert db.get_application_rounds(app.id) == []
 

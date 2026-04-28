@@ -1,73 +1,75 @@
 # NoteMaster
 
-A local-first study system that captures anything, turns Apple Books highlights and interview material into a connected knowledge graph, and drives structured spaced-repetition sessions — powered by a self-hosted AI.
+**Your personal learning coach for senior engineering interviews and English fluency.**
 
-## Motivation
-
-Reading technical books is easy. Retaining concepts well enough to explain them in a senior engineering interview is hard. NoteMaster bridges that gap by:
-
-1. Pulling highlights directly from Apple Books and using AI to synthesize them into a connected knowledge graph.
-2. Capturing fleeting notes instantly and routing them to the right place — English vocab, concept, or interview question.
-3. Tracking job applications and interview questions alongside your notes so everything lives in one place.
-4. Linking interview questions to knowledge concepts — so you know exactly which chapters to revisit when a question trips you up.
-5. Driving active recall sessions with AI feedback on both technical depth and English expression.
-
-The backend runs on your Mac. The web UI is accessible from any device on the same local network — Mac, iPhone, or iPad — with no installation required on mobile.
+NoteMaster is not a note-taking app or a second brain. It is the execution layer that sits on top of your learning tools — it tells you what to practice today, makes you do the reps, and tracks whether you're improving.
 
 ---
 
-## Features
+## What it does
 
-### Capture (quick-capture inbox)
-- Paste or type anything quickly — a word, a concept, a question — without deciding where it goes
-- Pending count badge on the home screen so nothing gets forgotten
-- Per-item routing buttons: send directly to English, Concept, or Question
-- **AI Classify**: one click to get a type suggestion + structured preview, then confirm with a single tap
+```
+Data Sources (plug in what you use)
+├── NoteMaster DB       — English vocab, questions, job applications
+├── Hello Interview     — SD / LLD curriculum
+├── NeetCode roadmap    — Coding problem list
+├── Obsidian vault      — Your notes (optional)
+└── Web / URL           — Articles → questions
+         ↓
+    NoteMaster
+    (coordinator)
+         ↓
+    Daily plan  →  Practice  →  Track progress
+```
 
-### English vocabulary
-- Vocabulary and phrase cards with IPA phonetics, Chinese translation, usage note, and example sentences
-- Extended attributes (tenses, word forms, root, synonyms, derivatives) generated selectively via AI
-- All fields inline-editable; batch AI enrichment for multiple entries at once
-- Spaced-repetition review with pronunciation check (speech-to-text via Whisper)
+You bring the study materials. NoteMaster decides what to practice today, runs the drill, and keeps score.
 
-### Knowledge graph
-- AI synthesizes highlights into concept nodes with a directed relationship graph (`depends_on`, `contrasts_with`, `part_of`, `example_of`)
-- Unified graph view across all books, or filtered per book
-- Interview question nodes overlaid on the graph — see at a glance which concepts a question tests
+---
 
-### Spaced repetition
-- SM-2 scheduling for concepts, English entries, and interview questions
-- Concept weight derived from highlight coverage; rises when you struggle, falls when you master
-- Review priority = `weight × (1 + days overdue)`
-- Session modes: concepts, English, mixed, or full interview simulation
+## Core features
+
+### Daily plan
+Auto-generated every morning from your queues. Time-blocked by type:
+- **Morning**: System Design + LLD + Coding problem
+- **Afternoon**: Behavioral + job search follow-ups
+- **Evening**: English vocabulary review + pronunciation drill
+
+You configure the blocks once. The content fills itself from your backlog.
+
+### English practice
+- Vocabulary cards with IPA, translation, usage, and example sentences
+- Spaced repetition (SM-2) — surfaces words at the right interval
+- Pronunciation drill: record yourself, get word-level feedback via Whisper
+- Register tagging: spoken (interview English) vs written (reading comprehension)
 
 ### Interview preparation
-- Kanban board for tracking job applications (Applied → Phone → Technical → Onsite → Offer / Rejected)
-- Interview questions bank with type tags (Behavioral, System Design, Coding) and self-score dots
-- Drill down from a Kanban card into questions from a specific interview round
-- Link questions to concepts — concept pills appear on question cards; question nodes appear on the graph
+- **Study questions**: generated from articles/guides via AI, organised by topic
+- **Behavioral / SD / LLD / Coding**: question bank with spaced repetition
+- **Pronunciation practice**: read your answer aloud, get scored
+- Links to Hello Interview breakdowns and NeetCode problems — NoteMaster tracks your progress without replacing those tools
 
-### Article → Questions (issue #39)
-- Paste a URL or article text; choose **Study mode** or **Interview mode**
-- **Study mode**: generates definition, comparison, and when-to-use questions with full model answers — for understanding
-- **Interview mode**: generates scenario-based questions with 2–3 pre-written follow-up probes per question — simulates a senior engineer grilling you in English
-- All generated questions land in the question bank and are immediately available for drill and spaced repetition
-- See [docs/features/article-to-questions.md](docs/features/article-to-questions.md) for design details
+### Job search
+- Kanban board: Applied → Phone → Technical → Onsite → Offer / Rejected
+- Per-application round tracking with round type (HR, Manager, Coding, SD, LLD, Behavioral)
+- Per-round: questions asked, preparation notes, practice entry
 
-### Import
-- Sync highlights from Apple Books via Asset ID
-- Import `.txt`, `.md`, or `.pdf` files as concepts
-- Import from transcript text (auto-extract questions)
-- Migrate from a job-hunt JSON export: `python -m scripts.migrate_job_hunt <file>`
+### Capture (Inbox)
+- Paste anything instantly — word, concept, question, link
+- AI classifies and routes to the right place
+- Pending badge keeps the backlog visible
 
-### Admin panel
-- Full modal editing for English entries — all 9 fields in one view
-- Inline editing for concepts (title, summary, weight), applications, and questions
-- Delete with cascade
+### AI providers
+- Supports local (llama.cpp / Ollama), Groq, OpenAI, Anthropic
+- Switch active provider from Admin — all features use the same provider
+- Falls back to `.env` config when no provider is activated
 
-### PWA
-- Installable on iPhone / iPad via "Add to Home Screen"
-- GitHub-style activity heatmap and daily streak counter
+---
+
+## What NoteMaster is not
+
+- **Not a knowledge base** — use Obsidian, Notion, or Apple Notes for that
+- **Not a flashcard app** — spaced repetition is a means to an end, not the product
+- **Not a replacement for Hello Interview or LeetCode** — it coordinates with them
 
 ---
 
@@ -75,27 +77,13 @@ The backend runs on your Mac. The web UI is accessible from any device on the sa
 
 | Layer | Choice |
 |-------|--------|
-| Backend | Python 3.11+ + FastAPI |
-| Frontend | Single-file responsive PWA — works in browser on Mac, iPhone, and iPad |
-| Speech-to-text | mlx-whisper — runs on Apple Silicon Neural Engine |
-| AI | Self-hosted via llama.cpp / Ollama (OpenAI-compatible API) |
+| Backend | Python 3.11+ · FastAPI |
+| Frontend | Single-file responsive PWA |
+| Speech-to-text | mlx-whisper (Apple Silicon Neural Engine) |
+| AI | Multi-provider: local / Groq / OpenAI / Anthropic |
 | Database | SQLite (`data/notemaster.db`) |
-| Highlight source | Apple Books SQLite (read-only, auto-detected) |
 
-All processing happens on your Mac. Mobile devices connect via browser over local Wi-Fi.
-
----
-
-## Requirements
-
-**Mac (server)**
-- macOS with Apple Silicon (M1 or later)
-- Python 3.11+
-- A running llama.cpp or Ollama server exposing an OpenAI-compatible API at a local address
-
-**iPhone / iPad (client)**
-- iOS 14.3+ / iPadOS 14.3+
-- Safari or any modern browser, same Wi-Fi as the Mac
+All processing runs on your Mac. Mobile connects via browser over local Wi-Fi.
 
 ---
 
@@ -109,7 +97,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Download the Whisper speech model (~769 MB, one-time):
+Download the Whisper model (~769 MB, one-time):
 
 ```bash
 python -m scripts.download_model
@@ -123,17 +111,18 @@ python -m scripts.download_model
 cp .env.example .env
 ```
 
-Edit `.env`:
-
+Minimal config (local AI):
 ```bash
-AI_BASE_URL=http://192.168.1.81:8080/v1   # your local AI server
-AI_MODEL=gemma-4-26b                       # model name as reported by the server
+AI_BASE_URL=http://192.168.1.81:8080/v1
+AI_MODEL=gemma-4-26b
 WHISPER_MODEL=medium
 ```
 
+For cloud AI providers, add providers via **Admin → AI Providers** — no `.env` changes needed.
+
 ---
 
-## Starting the server
+## Running
 
 ```bash
 source .venv/bin/activate
@@ -143,164 +132,25 @@ python -m notemaster serve
 - Mac: http://localhost:8000
 - iPhone / iPad: `http://<mac-local-ip>:8000`
 
-To find your Mac's local IP:
-
 ```bash
+# Find your Mac's local IP
 ipconfig getifaddr en0
-```
 
-The server runs with `--reload` by default in development, so file changes take effect immediately.
-
----
-
-## Restarting
-
-Stop the server with `Ctrl-C`, then start it again:
-
-```bash
-python -m notemaster serve
-```
-
-If the port is already in use (e.g. after a crash):
-
-```bash
-lsof -ti :8000 | xargs kill -9
-python -m notemaster serve
-```
-
----
-
-## Troubleshooting
-
-### Server won't start
-
-**Port already in use**
-```
-ERROR: [Errno 48] Address already in use
-```
-```bash
+# Kill a stuck server
 lsof -ti :8000 | xargs kill -9
 ```
 
-**Module not found**
-```
-ModuleNotFoundError: No module named 'notemaster'
-```
-Virtualenv is not activated:
-```bash
-source .venv/bin/activate
-```
-
-**Missing dependencies**
-```bash
-pip install -r requirements.txt
-```
-
 ---
 
-### AI features not working
-
-**Symptoms**: AI Classify spins forever, enrichment never fills in, no feedback after answering.
-
-1. Check the local AI server is reachable:
-   ```bash
-   curl http://192.168.1.81:8080/v1/models
-   ```
-   Should return a JSON list of models.
-
-2. Check `.env` — `AI_BASE_URL` must have no trailing slash; `AI_MODEL` must match exactly what the server reports.
-
-3. Check the server terminal for tracebacks. AI calls in background tasks fail silently but print to stdout.
-
-4. Quick connectivity test:
-   ```bash
-   source .venv/bin/activate
-   python - <<'EOF'
-   from openai import OpenAI
-   from notemaster.config import AI_BASE_URL, AI_MODEL
-   c = OpenAI(base_url=AI_BASE_URL, api_key="not-used")
-   r = c.chat.completions.create(model=AI_MODEL, messages=[{"role":"user","content":"ping"}])
-   print(r.choices[0].message.content)
-   EOF
-   ```
-
-**Slow responses**: Long inputs (synthesizing a full book) take minutes on a local model — this is expected.
-
----
-
-### Speech input not working
-
-**Symptoms**: Mic button does nothing, or voice answers are not transcribed.
-
-1. Confirm the Whisper model was downloaded:
-   ```bash
-   ls ~/.cache/huggingface/hub/ | grep whisper
-   ```
-   If empty: `python -m scripts.download_model`
-
-2. Check browser microphone permission — Safari on iOS requires explicit permission per site.
-
-3. The browser must connect via `http://localhost` or HTTPS. Accessing via LAN IP (`http://192.168.x.x:8000`) blocks the microphone in iOS Safari. Workaround: use a local HTTPS proxy (e.g. `caddy reverse-proxy --from https://notemaster.local --to http://localhost:8000`) or connect via USB/Bonjour.
-
----
-
-### Apple Books sync not working
-
-**Symptoms**: Sync returns an error or finds no highlights.
-
-1. Confirm Apple Books has been opened and the book has highlights.
-
-2. Check the Books database exists:
-   ```bash
-   ls ~/Library/Containers/com.apple.iBooksX/Data/Documents/BKLibrary/
-   ```
-
-3. Find the Asset ID for your book:
-   ```bash
-   sqlite3 ~/Library/Containers/com.apple.iBooksX/Data/Documents/BKLibrary/BKLibrary-1-091020131601.sqlite \
-     "SELECT ZASSETID, ZTITLE FROM ZBKLIBRARYASSET WHERE ZTITLE LIKE '%<book name>%';"
-   ```
-
-4. macOS may prompt for Full Disk Access — grant it to the terminal app you use.
-
----
-
-### Database issues
-
-The database lives at `data/notemaster.db` and is created automatically on first run. It is gitignored.
-
-**Reset the database** (destructive — loses all data):
-```bash
-rm data/notemaster.db
-python -m notemaster serve   # recreates schema on startup
-```
-
-**Inspect directly**:
-```bash
-sqlite3 data/notemaster.db
-.tables
-SELECT * FROM inbox_items WHERE processed_at IS NULL;
-SELECT count(*) FROM entries;
-```
-
----
-
-## Running tests
+## Tests
 
 ```bash
 source .venv/bin/activate
-
-# All unit tests (fast, no external deps)
-pytest tests/unit/ -q
-
-# Single file
-pytest tests/unit/test_inbox_api.py -v
-
-# Integration tests (requires local AI server + Apple Books)
-pytest -m integration
+pytest tests/unit/ -q          # 500+ unit tests, no external deps
+pytest tests/unit/test_X.py -v # single file
 ```
 
-The test suite has 495+ unit tests, all running against an in-memory SQLite database with mocked AI clients.
+Built TDD-first: every feature starts as a failing test.
 
 ---
 
@@ -309,135 +159,44 @@ The test suite has 495+ unit tests, all running against an in-memory SQLite data
 ```
 NoteMaster/
 ├── notemaster/
-│   ├── models.py       # Pydantic models for all entities
-│   ├── db.py           # SQLite CRUD for all tables
-│   ├── main.py         # FastAPI app + CLI entry point
-│   ├── ai.py           # AI: evaluate, synthesize, enrich, classify, generate questions
-│   ├── books.py        # Apple Books highlight reader
-│   ├── session.py      # Spaced repetition scheduling
+│   ├── models.py       # Pydantic models
+│   ├── db.py           # SQLite CRUD
+│   ├── main.py         # FastAPI app + CLI
+│   ├── ai.py           # AI: evaluate, enrich, classify, generate
+│   ├── providers.py    # AI provider adapter (OpenAI / Anthropic)
+│   ├── session.py      # SM-2 spaced repetition
 │   ├── stt.py          # Whisper speech-to-text
-│   ├── tools.py        # AI tool schemas + ToolHandler
+│   ├── books.py        # Apple Books highlight reader
 │   ├── importer.py     # File/PDF import
-│   ├── ocr.py          # Image OCR import
-│   └── config.py       # Env-based configuration
+│   ├── ocr.py          # Image OCR
+│   └── config.py       # Env config
 ├── frontend/
-│   ├── index.html      # Single-file PWA
-│   ├── favicon.svg
-│   └── icon-192.png
-├── tests/
-│   ├── unit/           # 471 unit tests, no external deps
-│   └── integration/
-├── scripts/
-│   ├── download_model.py
-│   ├── migrate_job_hunt.py
-│   └── migrate_entries_data.py
-├── data/               # gitignored — your database lives here
-├── .env.example
-├── requirements.txt
-└── README.md
+│   └── index.html      # Single-file PWA
+├── tests/unit/         # Unit tests
+├── docs/features/      # Feature design docs
+├── scripts/            # One-off migration and setup scripts
+├── data/               # gitignored — database lives here
+└── .env.example
 ```
 
 ---
 
-## API quick reference
+## Roadmap
 
-### Capture
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/inbox` | Create capture item |
-| `GET` | `/inbox` | List items; `?pending_only=true` |
-| `GET` | `/inbox/pending-count` | Pending count |
-| `PATCH` | `/inbox/{id}` | Update content or tags |
-| `DELETE` | `/inbox/{id}` | Dismiss item |
-| `POST` | `/inbox/{id}/classify` | AI classify → type + preview |
-| `POST` | `/inbox/{id}/route` | Route to English / Concept / Question |
+See [open issues](../../issues) for the full list. Current priorities:
 
-### English entries
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/entries` | List entries |
-| `POST` | `/entries` | Create (triggers background AI enrich) |
-| `PATCH` | `/entries/{id}` | Update text or data fields |
-| `DELETE` | `/entries/{id}` | Delete |
-| `POST` | `/entries/{id}/enrich` | Re-run AI enrichment |
-| `POST` | `/entries/{id}/enrich/extra` | AI enrich specific extra fields |
-| `POST` | `/entries/batch-enrich` | Batch enrich selected entries |
-| `GET` | `/entries/next` | Next entry due for review |
-| `POST` | `/entries/{id}/review` | Record SM-2 review |
-
-### Books & highlights
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/books` | List synced books |
-| `POST` | `/sync` | Import highlights from Apple Books |
-| `POST` | `/synthesize` | AI synthesis: highlights → concepts + edges |
-
-### Concepts
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/graph` | Knowledge graph; `?book_id=`, `?include_questions=true` |
-| `GET` | `/concepts/{id}` | Get concept |
-| `PATCH` | `/concepts/{id}` | Update |
-| `DELETE` | `/concepts/{id}` | Delete with cascade |
-| `POST` | `/concepts/{id}/review` | Record review |
-
-### Session
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/session/next` | Next item due |
-| `POST` | `/answer/text` | Submit text answer + AI evaluation |
-| `POST` | `/answer/voice` | Submit voice answer + AI evaluation |
-| `GET` | `/stats` | Streak, heatmap, session history |
-
-### Applications
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/applications` | List |
-| `POST` | `/applications` | Create |
-| `PATCH` | `/applications/{id}` | Update |
-| `DELETE` | `/applications/{id}` | Delete + rounds |
-| `POST` | `/applications/{id}/rounds` | Add interview round |
-| `PATCH` | `/applications/{id}/rounds/{rid}` | Update round |
-
-### Questions
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/questions` | List; `?q_type=`, `?due_only=true`, `?application_id=` |
-| `POST` | `/questions` | Create |
-| `GET` | `/questions/next` | Next due for SM-2 review |
-| `POST` | `/questions/import` | Bulk import |
-| `PATCH` | `/questions/{id}` | Update |
-| `DELETE` | `/questions/{id}` | Delete |
-| `POST` | `/questions/{id}/review` | Record SM-2 review |
-| `GET` | `/questions/{id}/concepts` | Linked concepts |
-| `POST` | `/questions/{id}/concepts` | Link concept |
-| `DELETE` | `/questions/{id}/concepts/{cid}` | Unlink concept |
-
-### Article → Questions
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/articles/generate-questions` | Generate questions from URL or text; `mode=study\|interview` |
+| # | Feature | Why first |
+|---|---------|-----------|
+| 1 | Daily plan (Home redesign) | Ties everything together into a daily habit |
+| 2 | Curriculum: Hello Interview SD/LLD + NeetCode | Gives the daily plan content to draw from |
+| 3 | Interview round types + LeetCode entity | Structures job prep properly |
+| 4 | Pronunciation practice Level 1 | Highest-friction gap in current workflow |
+| 5 | English register / content types | Better spoken vs written drill separation |
+| 6 | Source document entity | Audit trail from material → practice |
+| 7 | Obsidian datasource integration | One datasource among many, not a dependency |
 
 ---
 
 ## Privacy
 
-- `data/` is gitignored — your database never leaves your machine
-- Highlights are read directly from Apple Books and sent only to your local AI server
-- No external network calls
-
----
-
-## Development
-
-This project is built test-first. Every new behaviour is written as a failing test before implementation.
-
-```bash
-# Run all unit tests
-pytest tests/unit/ -q
-
-# TDD workflow:
-# 1. Write a failing test
-# 2. Implement minimum code to pass
-# 3. Refactor — tests stay green
-```
+`data/` is gitignored. Nothing leaves your machine unless you configure a cloud AI provider.

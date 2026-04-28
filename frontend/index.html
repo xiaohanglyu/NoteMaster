@@ -61,6 +61,26 @@
     .heatmap-cell[data-count="3"] { background: #6366f1c0; }
     .heatmap-cell[data-count="4"] { background: var(--accent); }
 
+    /* Difficulty badges */
+    .diff-easy   { background: #22c55e20; color: var(--green); }
+    .diff-medium { background: #eab30820; color: var(--yellow); }
+    .diff-hard   { background: #ef444420; color: var(--red); }
+    .diff-btn.active { border-color: var(--accent); color: var(--accent); }
+
+    /* Problem card */
+    .problem-card { display:flex; flex-direction:column; gap:6px; }
+    .problem-card-row { display:flex; align-items:flex-start; gap:8px; }
+
+    /* Daily plan */
+    .plan-block-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 12px 0 6px; }
+    .plan-block-label:first-child { margin-top: 0; }
+    .plan-task { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .plan-task:last-child { border-bottom: none; }
+    .plan-task-check { width: 18px; height: 18px; flex-shrink: 0; cursor: pointer; accent-color: var(--accent); margin-top: 1px; }
+    .plan-task-title { flex: 1; font-size: 14px; line-height: 1.4; }
+    .plan-task-title.done { text-decoration: line-through; color: var(--muted); }
+    .plan-task-type { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: var(--surface2); color: var(--muted); flex-shrink: 0; margin-top: 2px; }
+
     /* Tags */
     .tag { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 500; }
     .tag-yellow { background: #eab30820; color: var(--yellow); }
@@ -321,6 +341,7 @@
 
 <!-- ═══════════════════════ HOME VIEW ═══════════════════════ -->
 <div id="view-home" class="view active">
+  <!-- Nav row -->
   <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--gap)">
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px;gap:5px" onclick="openInbox()">
       Capture <span id="inbox-pending-badge" class="due-badge" style="display:none"></span>
@@ -333,6 +354,17 @@
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openAdmin()">Admin</button>
   </div>
 
+  <!-- Daily Plan -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-weight:600;font-size:15px" id="plan-date-label">Today's Plan</div>
+      <button class="btn btn-secondary" style="width:auto;padding:4px 10px;font-size:12px" onclick="regeneratePlan()">↺ Regenerate</button>
+    </div>
+    <div id="plan-loading" style="color:var(--muted);font-size:13px">Loading…</div>
+    <div id="plan-blocks" style="display:none"></div>
+  </div>
+
+  <!-- Streak + Sessions -->
   <div class="card" style="display:flex;align-items:center;gap:var(--gap)">
     <div>
       <div class="streak" id="streak-count">—</div>
@@ -647,9 +679,17 @@
     </div>
     <div class="section-title" style="margin-bottom:8px">Interview Rounds</div>
     <div id="job-detail-rounds"></div>
-    <div style="display:grid;grid-template-columns:1fr auto auto;gap:6px;margin-top:8px">
-      <input type="text" id="new-round-name" placeholder="Round name (e.g. Technical)" style="font-size:13px">
-      <input type="text" id="new-round-date" placeholder="Date" style="font-size:13px;width:100px">
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:8px">
+      <select id="new-round-type" style="font-size:13px;padding:8px">
+        <option value="">Type (optional)</option>
+        <option value="hr_screen">HR Screen</option>
+        <option value="manager_screen">Manager Screen</option>
+        <option value="behavioral">Behavioral</option>
+        <option value="coding">Coding</option>
+        <option value="system_design">System Design</option>
+        <option value="lld">LLD</option>
+      </select>
+      <input type="text" id="new-round-date" placeholder="Date" style="font-size:13px">
       <button class="btn btn-secondary" style="font-size:13px;padding:8px 12px;width:auto" onclick="addRound()">Add</button>
     </div>
     <div style="margin-top:var(--gap)">
@@ -845,6 +885,28 @@
       </div>
     </div>
 
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:var(--gap)">
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Register</div>
+        <select id="ee-register" style="font-size:13px;padding:8px">
+          <option value="">—</option>
+          <option value="formal">Formal</option>
+          <option value="informal">Informal</option>
+          <option value="colloquial">Colloquial</option>
+          <option value="slang">Slang</option>
+        </select>
+      </div>
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Usage context</div>
+        <select id="ee-content-type" style="font-size:13px;padding:8px">
+          <option value="">—</option>
+          <option value="spoken">Spoken</option>
+          <option value="written">Written</option>
+          <option value="both">Both</option>
+        </select>
+      </div>
+    </div>
+
     <input type="hidden" id="ee-entry-id">
     <div style="display:flex;gap:8px;margin-bottom:var(--gap)">
       <button class="btn btn-primary" onclick="saveEntryEditModal()">Save</button>
@@ -860,27 +922,91 @@
 
 <!-- ═══════════════════════ TECH VIEW ═══════════════════════ -->
 <div id="view-tech" class="view">
-  <div class="row" style="margin-bottom:16px">
+  <div class="row" style="margin-bottom:12px">
     <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="goHome()">← Home</button>
     <h2 style="margin:0 0 0 12px">Tech</h2>
     <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;margin-left:auto" onclick="openArticleModal()">From Article</button>
   </div>
 
-  <!-- Quick-access cards -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:var(--gap)">
-    <button class="card" style="text-align:left;cursor:pointer;border:none;gap:4px" onclick="openGraphView()">
-      <div style="font-size:15px;font-weight:600">Knowledge Graph</div>
-      <div style="font-size:12px;color:var(--muted)">Concepts &amp; relationships from your books</div>
-    </button>
-    <button class="card" style="text-align:left;cursor:pointer;border:none;gap:4px" onclick="openArticleModal()">
-      <div style="font-size:15px;font-weight:600">From Article</div>
-      <div style="font-size:12px;color:var(--muted)">Generate study or interview questions</div>
-    </button>
+  <!-- Tab bar -->
+  <div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <button class="admin-tab active" data-tab="sd" onclick="switchTechTab(this,'sd')">System Design</button>
+    <button class="admin-tab" data-tab="lld" onclick="switchTechTab(this,'lld')">LLD</button>
+    <button class="admin-tab" data-tab="coding" onclick="switchTechTab(this,'coding')">Coding</button>
+    <button class="admin-tab" data-tab="study" onclick="switchTechTab(this,'study')">Study Q&A</button>
+    <button class="admin-tab" data-tab="graph" onclick="switchTechTab(this,'graph');openGraphView()">Graph</button>
   </div>
 
-  <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Study Questions</div>
-  <div id="study-tag-filter" class="filter-bar" style="margin-bottom:10px;display:none"></div>
-  <div id="study-list" style="display:flex;flex-direction:column;gap:8px"></div>
+  <!-- SD tab -->
+  <div id="tech-tab-sd" class="admin-panel">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn btn-primary" style="width:auto;padding:6px 14px;font-size:13px" onclick="openAddProblemModal('sd')">+ Add Problem</button>
+    </div>
+    <div id="problem-list-sd"></div>
+  </div>
+
+  <!-- LLD tab -->
+  <div id="tech-tab-lld" class="admin-panel" style="display:none">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn btn-primary" style="width:auto;padding:6px 14px;font-size:13px" onclick="openAddProblemModal('lld')">+ Add Problem</button>
+    </div>
+    <div id="problem-list-lld"></div>
+  </div>
+
+  <!-- Coding tab -->
+  <div id="tech-tab-coding" class="admin-panel" style="display:none">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn btn-primary" style="width:auto;padding:6px 14px;font-size:13px" onclick="openAddProblemModal('coding')">+ Add Problem</button>
+    </div>
+    <div id="problem-list-coding"></div>
+  </div>
+
+  <!-- Study Q&A tab -->
+  <div id="tech-tab-study" class="admin-panel" style="display:none">
+    <div id="study-tag-filter" class="filter-bar" style="margin-bottom:10px;display:none"></div>
+    <div id="study-list" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+  <!-- Graph tab placeholder -->
+  <div id="tech-tab-graph" class="admin-panel" style="display:none"></div>
+</div>
+
+<!-- Add/Edit Problem Modal -->
+<div id="modal-add-problem" style="display:none;position:fixed;inset:0;background:#0008;z-index:200;overflow:auto">
+  <div style="background:var(--surface);border-radius:12px;padding:24px;max-width:480px;margin:40px auto;display:flex;flex-direction:column;gap:14px">
+    <h3 style="margin:0" id="add-problem-title">Add Problem</h3>
+    <input type="hidden" id="add-problem-type">
+    <input type="hidden" id="edit-problem-id">
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Title *</div>
+      <input type="text" id="problem-input-title" placeholder="e.g. Design Bitly">
+    </div>
+    <div id="problem-difficulty-row">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Difficulty</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary diff-btn" data-diff="" onclick="selectDiff(this)">None</button>
+        <button class="btn btn-secondary diff-btn" data-diff="easy" onclick="selectDiff(this)">Easy</button>
+        <button class="btn btn-secondary diff-btn" data-diff="medium" onclick="selectDiff(this)">Medium</button>
+        <button class="btn btn-secondary diff-btn" data-diff="hard" onclick="selectDiff(this)">Hard</button>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">URL (optional)</div>
+      <input type="text" id="problem-input-url" placeholder="https://leetcode.com/...">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Tags (comma-separated)</div>
+      <input type="text" id="problem-input-tags" placeholder="cache, design, hash">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Notes</div>
+      <textarea id="problem-input-notes" style="min-height:60px" placeholder="Key ideas, approaches…"></textarea>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="width:auto;padding:8px 18px" onclick="saveProblem()">Save</button>
+      <button class="btn btn-secondary" style="width:auto;padding:8px 18px" onclick="closeAddProblemModal()">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════════ ADMIN VIEW ═══════════════════════ -->
@@ -943,6 +1069,12 @@
           <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Upload a photo or screenshot. OCR extracts text and creates English vocabulary entries.</div>
           <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" onclick="document.getElementById('admin-ocr-input').click()">Choose image…</button>
           <input type="file" id="admin-ocr-input" accept="image/*" style="display:none" onchange="importImage(this)">
+        </div>
+        <div class="card">
+          <div style="font-weight:600;margin-bottom:6px">Seed Curriculum</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Pre-populate Tech problems: Hello Interview SD/LLD problems and NeetCode coding roadmap. Safe to run multiple times — skips already-added problems.</div>
+          <button class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:13px" id="seed-curriculum-btn" onclick="seedCurriculum()">Seed curriculum</button>
+          <div id="seed-curriculum-result" style="margin-top:8px;font-size:13px;color:var(--green)"></div>
         </div>
       </div>
     </div>
@@ -1158,6 +1290,7 @@ function goHome() {
   clearSessionTimer();
   show("home");
   loadStats();
+  loadPlan();
 }
 
 // ═══════════════════════ HOME ═══════════════════════
@@ -1196,6 +1329,83 @@ function renderHeatmap(heatmap) {
     if (count) cell.dataset.count = Math.min(count, 4);
     cell.title = key;
     el.appendChild(cell);
+  }
+}
+
+// ═══════════════════════ DAILY PLAN ═══════════════════════
+
+const _TASK_TYPE_LABELS = {
+  sd: "System Design", lld: "LLD", coding: "Coding", behavioral: "Behavioral",
+  english: "English", inbox: "Inbox", jobs: "Jobs", custom: "Custom",
+};
+
+const _BLOCK_LABELS = { morning: "🌅 Morning", afternoon: "☀️ Afternoon", evening: "🌙 Evening" };
+
+async function loadPlan() {
+  try {
+    const plan = await api("GET", "/plan/today");
+    renderPlan(plan);
+  } catch (e) {
+    document.getElementById("plan-loading").textContent = "Plan unavailable";
+  }
+}
+
+function renderPlan(plan) {
+  const loading = document.getElementById("plan-loading");
+  const container = document.getElementById("plan-blocks");
+  loading.style.display = "none";
+  container.style.display = "";
+
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById("plan-date-label").textContent =
+    plan.date === today ? "Today's Plan" : `Plan — ${plan.date}`;
+
+  if (!plan.tasks.length) {
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px">No tasks — click Regenerate to create a plan.</div>';
+    return;
+  }
+
+  const byBlock = {};
+  for (const t of plan.tasks) {
+    (byBlock[t.block] = byBlock[t.block] || []).push(t);
+  }
+
+  let html = "";
+  for (const block of ["morning", "afternoon", "evening"]) {
+    const tasks = byBlock[block];
+    if (!tasks) continue;
+    html += `<div class="plan-block-label">${_BLOCK_LABELS[block] || block}</div>`;
+    for (const t of tasks) {
+      const done = t.done ? "done" : "";
+      html += `
+        <div class="plan-task" id="plan-task-${t.id}">
+          <input type="checkbox" class="plan-task-check" ${t.done ? "checked" : ""}
+            onchange="togglePlanTask('${t.id}', this.checked)">
+          <span class="plan-task-title ${done}">${t.title}</span>
+          <span class="plan-task-type">${_TASK_TYPE_LABELS[t.task_type] || t.task_type}</span>
+        </div>`;
+    }
+  }
+  container.innerHTML = html;
+}
+
+async function togglePlanTask(taskId, done) {
+  try {
+    await api("POST", `/plan/tasks/${taskId}/toggle`, { done });
+    const titleEl = document.querySelector(`#plan-task-${taskId} .plan-task-title`);
+    if (titleEl) titleEl.classList.toggle("done", done);
+  } catch (e) { console.warn("Toggle failed:", e); }
+}
+
+async function regeneratePlan() {
+  document.getElementById("plan-loading").style.display = "";
+  document.getElementById("plan-blocks").style.display = "none";
+  document.getElementById("plan-loading").textContent = "Generating…";
+  try {
+    const plan = await api("POST", "/plan/regenerate");
+    renderPlan(plan);
+  } catch (e) {
+    document.getElementById("plan-loading").textContent = "Failed to generate plan";
   }
 }
 
@@ -2094,6 +2304,8 @@ function _extendedHTML(e) {
   rows.push(fmt("root", d.root));
   rows.push(fmt("synonyms", d.synonyms));
   rows.push(fmt("derivatives", d.derivatives));
+  if (d.usage_register) rows.push(`<div class="entry-ext-row"><span class="entry-ext-label">register</span><span class="entry-ext-val">${escHtml(d.usage_register)}</span></div>`);
+  if (d.content_type) rows.push(`<div class="entry-ext-row"><span class="entry-ext-label">usage</span><span class="entry-ext-val">${escHtml(d.content_type)}</span></div>`);
   const inner = rows.filter(Boolean).join("");
   return inner ? `<div class="entry-extended">${inner}</div>` : "";
 }
@@ -2369,6 +2581,24 @@ async function toggleEntryRecording() {
   } catch (e) { alert("Microphone access denied."); }
 }
 
+async function seedCurriculum() {
+  const btn = document.getElementById("seed-curriculum-btn");
+  const res = document.getElementById("seed-curriculum-result");
+  btn.textContent = "Seeding…";
+  btn.disabled = true;
+  try {
+    const data = await api("POST", "/admin/seed-curriculum");
+    const s = data.seeded;
+    res.textContent = `Done — added ${s.sd} SD, ${s.lld} LLD, ${s.coding} coding problems.`;
+  } catch (e) {
+    res.style.color = "var(--red)";
+    res.textContent = "Failed: " + e.message;
+  } finally {
+    btn.textContent = "Seed curriculum";
+    btn.disabled = false;
+  }
+}
+
 async function importImage(input) {
   const file = input.files[0];
   if (!file) return;
@@ -2627,11 +2857,22 @@ async function openJobDetail(id) {
   try {
     const detail = await api("GET", `/applications/${id}`);
     const rounds = detail.rounds || [];
+    const _STATUS_COLOR = {scheduled:"var(--muted)",completed:"var(--accent)",passed:"var(--green)",failed:"var(--red)"};
+    const _ROUND_TYPE_LABEL = {hr_screen:"HR Screen",manager_screen:"Manager Screen",behavioral:"Behavioral",coding:"Coding",system_design:"System Design",lld:"LLD"};
     document.getElementById("job-detail-rounds").innerHTML = rounds.length
       ? rounds.map(r => `
-          <div class="round-item" style="cursor:pointer" onclick="openQuestionsForRound('${id}','${escHtml(r.name).replace(/'/g,"\\'")}')">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <strong>${escHtml(r.name)}</strong>${r.date ? `<span style="font-size:11px;color:var(--muted)">${r.date}</span>` : ""}
+          <div class="round-item" onclick="openQuestionsForRound('${id}','${escHtml(r.name).replace(/'/g,"\\'")}')">
+            <div style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:6px">
+                ${r.round_type ? `<span style="font-size:11px;padding:1px 7px;border-radius:99px;background:var(--bg);color:var(--muted);border:1px solid var(--border)">${_ROUND_TYPE_LABEL[r.round_type]||r.round_type}</span>` : ""}
+                <strong style="font-size:13px">${escHtml(r.name)}</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                ${r.date ? `<span style="font-size:11px;color:var(--muted)">${r.date}</span>` : ""}
+                <select onchange="updateRoundStatus('${id}',${r.id},this.value)" onclick="event.stopPropagation()" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:${_STATUS_COLOR[r.status]||'var(--muted)'}">
+                  ${["scheduled","completed","passed","failed"].map(s=>`<option value="${s}"${r.status===s?" selected":""}>${s}</option>`).join("")}
+                </select>
+              </div>
             </div>
             ${r.feedback ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${escHtml(r.feedback)}</div>` : ""}
             <div style="font-size:11px;color:var(--accent);margin-top:4px">View questions →</div>
@@ -2670,15 +2911,25 @@ async function deleteCurrentJob() {
 
 async function addRound() {
   if (!_currentJobId) return;
-  const name = document.getElementById("new-round-name").value.trim();
+  const roundType = document.getElementById("new-round-type").value || null;
   const date = document.getElementById("new-round-date").value.trim();
-  if (!name) return;
+  // Use round type label as name, or ask for name if no type
+  const typeLabels = {hr_screen:"HR Screen",manager_screen:"Manager Screen",behavioral:"Behavioral",coding:"Coding",system_design:"System Design",lld:"LLD"};
+  const name = roundType ? (typeLabels[roundType] || roundType) : "Round";
   try {
-    await api("POST", `/applications/${_currentJobId}/rounds`, { name, date: date || null });
-    document.getElementById("new-round-name").value = "";
+    await api("POST", `/applications/${_currentJobId}/rounds`, {
+      name, round_type: roundType, date: date || null,
+    });
+    document.getElementById("new-round-type").value = "";
     document.getElementById("new-round-date").value = "";
     await openJobDetail(_currentJobId);
   } catch (e) { alert("Add round failed: " + e.message); }
+}
+
+async function updateRoundStatus(appId, roundId, status) {
+  try {
+    await api("PATCH", `/applications/${appId}/rounds/${roundId}`, { status });
+  } catch (e) { console.warn("Status update failed:", e); }
 }
 
 function viewQuestionsForJob() {
@@ -3119,7 +3370,162 @@ async function confirmImport() {
 
 async function openTech() {
   show("tech");
-  await loadStudyQuestions();
+  await loadProblems("sd");
+}
+
+function switchTechTab(btn, tab) {
+  document.querySelectorAll("#view-tech .admin-tab").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  document.querySelectorAll("#view-tech .admin-panel").forEach(p => p.style.display = "none");
+  document.getElementById(`tech-tab-${tab}`).style.display = "";
+  loadTechTab(tab);
+}
+
+async function loadTechTab(tab) {
+  if (tab === "sd" || tab === "lld" || tab === "coding") {
+    await loadProblems(tab);
+  } else if (tab === "study") {
+    await loadStudyQuestions();
+  }
+}
+
+// ═══════════════════════ PROBLEMS (SD / LLD / CODING) ═══════════════════════
+
+let _problems = {};  // by type
+
+async function loadProblems(problemType) {
+  try {
+    const data = await api("GET", `/problems?problem_type=${problemType}`);
+    _problems[problemType] = data;
+    renderProblems(problemType);
+  } catch (e) { console.warn("Problems load failed:", e); }
+}
+
+const _DIFF_LABEL = { easy: "Easy", medium: "Medium", hard: "Hard" };
+const _DIFF_CLASS = { easy: "diff-easy", medium: "diff-medium", hard: "diff-hard" };
+
+function renderProblems(problemType) {
+  const container = document.getElementById(`problem-list-${problemType}`);
+  const list = _problems[problemType] || [];
+  if (!list.length) {
+    container.innerHTML = `<div class="card" style="color:var(--muted);font-size:13px;text-align:center;padding:32px">
+      No problems yet — click "+ Add Problem" to add your first one.
+    </div>`;
+    return;
+  }
+  container.innerHTML = list.map(p => {
+    const diffBadge = p.difficulty
+      ? `<span class="tag ${_DIFF_CLASS[p.difficulty]}" style="font-size:11px">${_DIFF_LABEL[p.difficulty]}</span>` : "";
+    const tags = (p.tags || []).map(t =>
+      `<span style="font-size:11px;padding:1px 7px;border-radius:99px;background:var(--bg);color:var(--muted);border:1px solid var(--border)">${escHtml(t)}</span>`
+    ).join("");
+    const dueStr = p.next_review_at
+      ? (() => {
+          const d = new Date(p.next_review_at);
+          const today = new Date(); today.setHours(0,0,0,0);
+          return d <= today ? '<span style="font-size:11px;color:var(--accent)">Due</span>' : "";
+        })() : '<span style="font-size:11px;color:var(--muted)">New</span>';
+    return `
+      <div class="card problem-card" id="problem-card-${p.id}">
+        <div class="problem-card-row">
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:500;line-height:1.4">
+              ${p.url ? `<a href="${escHtml(p.url)}" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none">${escHtml(p.title)}</a>` : escHtml(p.title)}
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+              ${diffBadge}${dueStr}${tags}
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0;margin-top:2px">
+            <button style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="openEditProblemModal('${p.id}')">Edit</button>
+            <button style="background:none;border:none;color:var(--red);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="deleteProblem('${p.id}','${problemType}')">Delete</button>
+          </div>
+        </div>
+        ${p.notes ? `<div style="font-size:12px;color:var(--muted);line-height:1.5;padding:8px;background:var(--bg);border-radius:6px">${escHtml(p.notes)}</div>` : ""}
+        <!-- Review row -->
+        <div style="display:flex;gap:6px;align-items:center;padding-top:4px;border-top:1px solid var(--border)">
+          <span style="font-size:11px;color:var(--muted)">Rate:</span>
+          ${[0,1,2,3,4,5].map(g => `<button onclick="reviewProblem('${p.id}','${problemType}',${g})" style="padding:2px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;cursor:pointer">${g}</button>`).join("")}
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function openAddProblemModal(type) {
+  document.getElementById("add-problem-title").textContent = `Add ${type.toUpperCase()} Problem`;
+  document.getElementById("add-problem-type").value = type;
+  document.getElementById("edit-problem-id").value = "";
+  document.getElementById("problem-input-title").value = "";
+  document.getElementById("problem-input-url").value = "";
+  document.getElementById("problem-input-tags").value = "";
+  document.getElementById("problem-input-notes").value = "";
+  document.getElementById("problem-difficulty-row").style.display = type === "coding" ? "" : "none";
+  document.querySelectorAll(".diff-btn").forEach(b => b.classList.remove("active"));
+  document.querySelector(".diff-btn[data-diff='']").classList.add("active");
+  document.getElementById("modal-add-problem").style.display = "";
+}
+
+function openEditProblemModal(id) {
+  const type = document.querySelector("#view-tech .admin-tab.active").dataset.tab;
+  const p = (_problems[type] || []).find(x => x.id === id);
+  if (!p) return;
+  document.getElementById("add-problem-title").textContent = `Edit Problem`;
+  document.getElementById("add-problem-type").value = p.problem_type;
+  document.getElementById("edit-problem-id").value = p.id;
+  document.getElementById("problem-input-title").value = p.title;
+  document.getElementById("problem-input-url").value = p.url || "";
+  document.getElementById("problem-input-tags").value = (p.tags || []).join(", ");
+  document.getElementById("problem-input-notes").value = p.notes || "";
+  document.getElementById("problem-difficulty-row").style.display = p.problem_type === "coding" ? "" : "none";
+  document.querySelectorAll(".diff-btn").forEach(b => b.classList.remove("active"));
+  const dv = p.difficulty || "";
+  document.querySelector(`.diff-btn[data-diff="${dv}"]`)?.classList.add("active");
+  document.getElementById("modal-add-problem").style.display = "";
+}
+
+function closeAddProblemModal() {
+  document.getElementById("modal-add-problem").style.display = "none";
+}
+
+function selectDiff(btn) {
+  document.querySelectorAll(".diff-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+}
+
+async function saveProblem() {
+  const type = document.getElementById("add-problem-type").value;
+  const editId = document.getElementById("edit-problem-id").value;
+  const title = document.getElementById("problem-input-title").value.trim();
+  if (!title) { alert("Title is required"); return; }
+  const difficulty = document.querySelector(".diff-btn.active")?.dataset.diff || null;
+  const url = document.getElementById("problem-input-url").value.trim() || null;
+  const tags = document.getElementById("problem-input-tags").value.split(",").map(t=>t.trim()).filter(Boolean);
+  const notes = document.getElementById("problem-input-notes").value.trim() || null;
+  const payload = { title, problem_type: type, difficulty: difficulty || null, url, tags, notes };
+  try {
+    if (editId) {
+      await api("PATCH", `/problems/${editId}`, payload);
+    } else {
+      await api("POST", "/problems", payload);
+    }
+    closeAddProblemModal();
+    await loadProblems(type);
+  } catch (e) { alert("Save failed: " + e.message); }
+}
+
+async function deleteProblem(id, problemType) {
+  if (!confirm("Delete this problem?")) return;
+  try {
+    await fetch(`/problems/${id}`, { method: "DELETE" });
+    await loadProblems(problemType);
+  } catch (e) { alert("Delete failed: " + e.message); }
+}
+
+async function reviewProblem(id, problemType, grade) {
+  try {
+    await api("POST", `/problems/${id}/review`, { grade });
+    await loadProblems(problemType);
+  } catch (e) { alert("Review failed: " + e.message); }
 }
 
 let _studyTagFilter = null;
@@ -3168,6 +3574,7 @@ function renderStudyList() {
           <span class="type-badge ${q.q_type}" style="flex-shrink:0;margin-top:2px">${q.q_type.replace("_"," ")}</span>
           <span style="font-size:14px;font-weight:500;line-height:1.4;flex:1">${escHtml(q.question)}</span>
           <div style="display:flex;gap:4px;flex-shrink:0;margin-top:1px">
+            <button style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="toggleShadowPanel('${q.id}')">Shadow</button>
             <button style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="toggleStudyEdit('${q.id}')">Edit</button>
             <button style="background:none;border:none;color:var(--red);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="deleteStudyQ('${q.id}')">Delete</button>
           </div>
@@ -3185,6 +3592,25 @@ function renderStudyList() {
               ${followUps.map(f => `<div style="font-size:12px;color:var(--muted);margin-bottom:3px">• ${escHtml(f)}</div>`).join("")}
             </div>
           </details>` : ""}
+        <!-- Shadow reading panel -->
+        <div id="shadow-panel-${q.id}" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11px;color:var(--muted)">Read this aloud:</span>
+            <button class="btn-tts" onclick="speakText('${escAttr(q.answer || q.question)}')" title="Listen">🔊</button>
+          </div>
+          <div style="font-size:13px;line-height:1.7;padding:10px;background:var(--bg);border-radius:6px;margin-bottom:10px;color:var(--text)" id="shadow-ref-${q.id}">${escHtml(q.answer || q.question)}</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+            <button class="btn btn-record" id="shadow-rec-btn-${q.id}" style="width:auto;padding:8px 16px;font-size:13px" onclick="toggleShadowRecord('${q.id}','question')">Record</button>
+            <span id="shadow-status-${q.id}" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+          <div id="shadow-result-${q.id}" style="display:none">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+              <div id="shadow-score-${q.id}" style="font-size:20px;font-weight:700;color:var(--accent)"></div>
+              <div id="shadow-words-${q.id}" style="font-size:13px;line-height:1.8;flex:1"></div>
+            </div>
+            <div id="shadow-feedback-${q.id}" style="font-size:13px;color:var(--muted);line-height:1.6;padding:10px;background:var(--bg);border-radius:6px"></div>
+          </div>
+        </div>
         <div id="study-edit-${q.id}" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px">
           <div style="margin-bottom:8px"><span style="font-size:11px;color:var(--muted)">Question</span>
             <textarea id="study-edit-q-${q.id}" style="min-height:60px;margin-top:4px">${escHtml(q.question)}</textarea></div>
@@ -3224,6 +3650,97 @@ async function deleteStudyQ(id) {
     await fetch(`/questions/${id}`, { method: "DELETE" });
     await loadStudyQuestions();
   } catch (e) { alert("Delete failed: " + e.message); }
+}
+
+// ---------------------------------------------------------------------------
+// Shadow reading
+// ---------------------------------------------------------------------------
+
+let _shadowMediaRecorder = null;
+let _shadowChunks = [];
+let _shadowRecordingId = null;
+let _shadowRecordingEndpoint = null;
+
+function toggleShadowPanel(id) {
+  const panel = document.getElementById(`shadow-panel-${id}`);
+  const isOpen = panel.style.display !== "none";
+  // close any other open shadow panels
+  document.querySelectorAll("[id^='shadow-panel-']").forEach(p => p.style.display = "none");
+  if (!isOpen) panel.style.display = "block";
+}
+
+async function toggleShadowRecord(id, type) {
+  const btn = document.getElementById(`shadow-rec-btn-${id}`);
+  const status = document.getElementById(`shadow-status-${id}`);
+
+  if (_shadowMediaRecorder && _shadowMediaRecorder.state === "recording") {
+    _shadowMediaRecorder.stop();
+    return;
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    alert("Microphone access denied.");
+    return;
+  }
+
+  _shadowChunks = [];
+  _shadowRecordingId = id;
+  _shadowRecordingEndpoint = type === "question"
+    ? `/questions/${id}/shadow`
+    : `/entries/${id}/shadow`;
+
+  _shadowMediaRecorder = new MediaRecorder(stream);
+  _shadowMediaRecorder.ondataavailable = e => { if (e.data.size > 0) _shadowChunks.push(e.data); };
+  _shadowMediaRecorder.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    btn.textContent = "Record";
+    btn.classList.remove("recording");
+    status.textContent = "Processing…";
+    document.getElementById(`shadow-result-${id}`).style.display = "none";
+
+    const blob = new Blob(_shadowChunks, { type: "audio/webm" });
+    const form = new FormData();
+    form.append("audio", blob, "shadow.webm");
+    try {
+      const resp = await fetch(_shadowRecordingEndpoint, { method: "POST", body: form });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      renderShadowResult(id, data);
+      status.textContent = "";
+    } catch (e) {
+      status.textContent = "Error: " + e.message;
+    }
+  };
+
+  _shadowMediaRecorder.start();
+  btn.textContent = "Stop";
+  btn.classList.add("recording");
+  status.textContent = "Recording…";
+}
+
+function renderShadowResult(id, data) {
+  const resultEl = document.getElementById(`shadow-result-${id}`);
+  const scoreEl  = document.getElementById(`shadow-score-${id}`);
+  const wordsEl  = document.getElementById(`shadow-words-${id}`);
+  const feedbackEl = document.getElementById(`shadow-feedback-${id}`);
+
+  const pct = Math.round(data.overall_score * 100);
+  scoreEl.textContent = pct + "%";
+  scoreEl.style.color = pct >= 90 ? "var(--green)" : pct >= 70 ? "var(--accent)" : "var(--red)";
+
+  wordsEl.innerHTML = (data.words || []).map(w => {
+    if (w.status === "ok") return `<span style="color:var(--text)">${escHtml(w.reference)} </span>`;
+    if (w.status === "substituted") return `<span style="color:var(--red);text-decoration:underline" title="heard: ${escHtml(w.heard||'')}">${escHtml(w.reference)} </span>`;
+    if (w.status === "omitted")     return `<span style="color:var(--red);opacity:.5">[${escHtml(w.reference)}] </span>`;
+    if (w.status === "inserted")    return `<span style="color:var(--yellow)">(${escHtml(w.heard||'')}) </span>`;
+    return "";
+  }).join("");
+
+  feedbackEl.textContent = data.feedback || "";
+  resultEl.style.display = "block";
 }
 
 // ---------------------------------------------------------------------------
@@ -3334,6 +3851,14 @@ function renderArticlePreview(result, questions = []) {
 async function saveArticleQuestions() {
   closeArticleModal();
   show("tech");
+  // Switch to Study Q&A tab
+  const studyBtn = document.querySelector("#view-tech .admin-tab[data-tab='study']");
+  if (studyBtn) {
+    document.querySelectorAll("#view-tech .admin-tab").forEach(b => b.classList.remove("active"));
+    studyBtn.classList.add("active");
+    document.querySelectorAll("#view-tech .admin-panel").forEach(p => p.style.display = "none");
+    document.getElementById("tech-tab-study").style.display = "";
+  }
   await loadStudyQuestions();
 }
 
@@ -3665,6 +4190,8 @@ async function openEntryEditModal(id) {
   document.getElementById("ee-root").value = d.root || "";
   document.getElementById("ee-synonyms").value = _lines(d.synonyms);
   document.getElementById("ee-derivatives").value = _lines(d.derivatives);
+  document.getElementById("ee-register").value = d.usage_register || "";
+  document.getElementById("ee-content-type").value = d.content_type || "";
   document.getElementById("entry-edit-modal").style.display = "flex";
 
   const relEl = document.getElementById("ee-related");
@@ -3690,9 +4217,11 @@ async function saveEntryEditModal() {
       examples:     _parseLines(g("ee-examples")),
       tenses:       _parseLines(g("ee-tenses")),
       word_forms:   _parseLines(g("ee-word-forms")),
-      root:         g("ee-root") || null,
-      synonyms:     _parseLines(g("ee-synonyms")),
-      derivatives:  _parseLines(g("ee-derivatives")),
+      root:           g("ee-root") || null,
+      synonyms:       _parseLines(g("ee-synonyms")),
+      derivatives:    _parseLines(g("ee-derivatives")),
+      usage_register: g("ee-register") || null,
+      content_type:   g("ee-content-type") || null,
     },
   };
   try {
@@ -4039,6 +4568,7 @@ if ("speechSynthesis" in window) {
   window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
 }
 loadStats();
+loadPlan();
 api("GET", "/entries/next").then(e => updateEnglishBadges(e ? 1 : 0)).catch(() => {});
 updateInboxBadge();
 </script>
