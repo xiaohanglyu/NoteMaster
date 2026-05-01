@@ -354,14 +354,57 @@
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openAdmin()">Admin</button>
   </div>
 
-  <!-- Daily Plan -->
-  <div class="card">
+  <!-- Coach Dashboard -->
+  <div class="card" id="coach-dashboard">
+    <!-- Coaching brief -->
+    <div id="coach-brief" style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;line-height:1.6;color:var(--text);display:none"></div>
+
+    <!-- Due counts -->
+    <div id="due-counts-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+
+    <!-- Goals row -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <div style="font-weight:600;font-size:15px" id="plan-date-label">Today's Plan</div>
-      <button class="btn btn-secondary" style="width:auto;padding:4px 10px;font-size:12px" onclick="regeneratePlan()">↺ Regenerate</button>
+      <div style="font-weight:600;font-size:14px">Goals</div>
+      <button style="background:none;border:1px dashed var(--border);color:var(--muted);font-size:12px;cursor:pointer;padding:2px 10px;border-radius:6px" onclick="openAddGoalPanel()">+ Add goal</button>
+    </div>
+    <div id="goals-list" style="margin-bottom:12px"></div>
+    <!-- Add goal inline panel -->
+    <div id="add-goal-panel" style="display:none;padding:10px;background:var(--bg);border-radius:8px;margin-bottom:12px">
+      <div style="display:grid;gap:6px">
+        <input id="goal-input-title" type="text" placeholder="Goal title (e.g. Google SD Interview)">
+        <div style="display:flex;gap:6px">
+          <select id="goal-input-type" style="flex:1;font-size:13px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="interview">Interview prep</option>
+            <option value="skill">Skill building</option>
+            <option value="curriculum">Curriculum</option>
+          </select>
+          <input id="goal-input-deadline" type="date" style="flex:1;font-size:13px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <label style="font-size:12px;color:var(--muted);white-space:nowrap">Priority</label>
+          <select id="goal-input-priority" style="width:80px;font-size:13px;padding:4px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="1">P1</option>
+            <option value="2" selected>P2</option>
+            <option value="3">P3</option>
+          </select>
+          <label style="font-size:12px;color:var(--muted);white-space:nowrap;margin-left:8px">Min/day</label>
+          <input id="goal-input-minutes" type="number" value="30" min="5" max="120" style="width:60px;font-size:13px;padding:4px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary" style="width:auto;padding:5px 14px;font-size:13px" onclick="saveGoal()">Save</button>
+          <button class="btn btn-secondary" style="width:auto;padding:5px 14px;font-size:13px" onclick="closeAddGoalPanel()">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <!-- Daily Plan -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="font-weight:600;font-size:14px" id="plan-date-label">Today's Plan</div>
+      <button class="btn btn-secondary" style="width:auto;padding:3px 10px;font-size:12px" onclick="regeneratePlan()">↺ Regenerate</button>
     </div>
     <div id="plan-loading" style="color:var(--muted);font-size:13px">Loading…</div>
     <div id="plan-blocks" style="display:none"></div>
+    <!-- Week done -->
+    <div id="week-done-row" style="display:none;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)"></div>
   </div>
 
   <!-- Streak + Sessions -->
@@ -559,6 +602,16 @@
     <span id="bulk-count" style="font-size:13px;color:var(--accent)">0 selected</span>
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px;margin-left:auto" onclick="clearSelection()">Clear</button>
     <button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openExpandPopover(null, true)">AI expand selected</button>
+  </div>
+
+  <!-- Tag filter bar -->
+  <div id="entry-tag-filter-bar" class="filter-bar" style="margin-bottom:10px">
+    <button class="filter-btn active" data-tag="" onclick="setEntryTagFilter('')">All</button>
+    <button class="filter-btn" data-tag="pronunciation" onclick="setEntryTagFilter('pronunciation')">Pronunciation</button>
+    <button class="filter-btn" data-tag="expression" onclick="setEntryTagFilter('expression')">Expression</button>
+    <button class="filter-btn" data-tag="vocabulary" onclick="setEntryTagFilter('vocabulary')">Vocabulary</button>
+    <button class="filter-btn" data-tag="phrase" onclick="setEntryTagFilter('phrase')">Phrase</button>
+    <button class="filter-btn" data-tag="interview" onclick="setEntryTagFilter('interview')">Interview</button>
   </div>
 
   <!-- Entry list -->
@@ -1290,7 +1343,130 @@ function goHome() {
   clearSessionTimer();
   show("home");
   loadStats();
-  loadPlan();
+  loadDashboard();
+}
+
+// ═══════════════════════ GOALS ═══════════════════════
+
+let _goals = [];
+let _dashboardData = null;
+
+async function loadDashboard() {
+  try {
+    _dashboardData = await api("GET", "/coach/dashboard");
+    _goals = (_dashboardData.goals_list) || [];
+    renderBrief(_dashboardData.brief);
+    renderDueCounts(_dashboardData.due_counts);
+    renderWeekDone(_dashboardData.week_done);
+    // extract goals from plan or re-fetch
+    _goals = await api("GET", "/goals").catch(() => []);
+    renderGoals();
+    renderPlan(_dashboardData.plan);
+  } catch (e) {
+    console.warn("Dashboard unavailable:", e.message);
+    loadGoals();
+    loadPlan();
+  }
+}
+
+function renderBrief(brief) {
+  const el = document.getElementById("coach-brief");
+  if (!brief) { el.style.display = "none"; return; }
+  el.textContent = brief;
+  el.style.display = "block";
+}
+
+function renderDueCounts(counts) {
+  const row = document.getElementById("due-counts-row");
+  if (!counts) { row.style.display = "none"; return; }
+  const _DUE_LABELS = {
+    questions: "Questions", problems: "Problems", entries: "Vocab", concepts: "Concepts",
+  };
+  const chips = Object.entries(counts)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;background:var(--bg);border:1px solid var(--border);font-size:12px;color:var(--muted)">${_DUE_LABELS[k] || k} <span style="font-weight:700;color:var(--accent)">${v}</span></span>`)
+    .join("");
+  row.innerHTML = chips || "";
+  row.style.display = chips ? "flex" : "none";
+}
+
+function renderWeekDone(count) {
+  const el = document.getElementById("week-done-row");
+  if (!count) { el.style.display = "none"; return; }
+  el.textContent = `${count} task${count !== 1 ? "s" : ""} completed this week`;
+  el.style.display = "block";
+}
+
+async function loadGoals() {
+  _goals = await api("GET", "/goals").catch(() => []);
+  renderGoals();
+}
+
+function renderGoals() {
+  const el = document.getElementById("goals-list");
+  if (!_goals.length) {
+    el.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:4px 0">No goals yet — add one to personalise your daily plan.</div>`;
+    return;
+  }
+  const sortedGoals = [..._goals].sort((a, b) => a.priority - b.priority);
+  const topPriority = sortedGoals[0]?.priority;
+  const _GOAL_TYPE_LABEL = { interview: "Interview", skill: "Skill", curriculum: "Curriculum" };
+  el.innerHTML = sortedGoals.map(g => {
+    const daysLeft = g.deadline
+      ? Math.ceil((new Date(g.deadline) - new Date()) / 86400000)
+      : null;
+    const urgency = daysLeft !== null
+      ? (daysLeft <= 7 ? `<span style="color:var(--red);font-size:11px;font-weight:600">${daysLeft}d left</span>`
+        : `<span style="color:var(--muted);font-size:11px">${daysLeft}d left</span>`)
+      : "";
+    const pColor = g.priority === 1 ? "var(--red)" : g.priority === 2 ? "var(--accent)" : "var(--muted)";
+    const isFocus = g.priority === topPriority;
+    const focusStyle = isFocus ? "background:var(--bg);border-radius:6px;padding:6px 8px;margin-bottom:4px" : "padding:6px 0;border-bottom:1px solid var(--border)";
+    const focusLabel = isFocus ? `<span style="font-size:10px;font-weight:600;color:var(--accent);margin-left:6px;text-transform:uppercase;letter-spacing:.05em">Focus</span>` : "";
+    return `
+      <div style="display:flex;align-items:center;gap:8px;${focusStyle}">
+        <span style="font-size:11px;font-weight:700;color:${pColor};min-width:20px">P${g.priority}</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500">${escHtml(g.title)}${focusLabel}</div>
+          <div style="font-size:11px;color:var(--muted)">${_GOAL_TYPE_LABEL[g.goal_type] || g.goal_type} · ${g.daily_minutes}min/day ${urgency}</div>
+        </div>
+        <button onclick="deleteGoal('${g.id}')" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 4px;line-height:1" title="Remove">×</button>
+      </div>`;
+  }).join("");
+}
+
+function openAddGoalPanel() {
+  document.getElementById("add-goal-panel").style.display = "block";
+  document.getElementById("goal-input-title").focus();
+}
+
+function closeAddGoalPanel() {
+  document.getElementById("add-goal-panel").style.display = "none";
+  document.getElementById("goal-input-title").value = "";
+}
+
+async function saveGoal() {
+  const title = document.getElementById("goal-input-title").value.trim();
+  if (!title) return;
+  const payload = {
+    title,
+    goal_type: document.getElementById("goal-input-type").value,
+    deadline: document.getElementById("goal-input-deadline").value || null,
+    priority: parseInt(document.getElementById("goal-input-priority").value),
+    daily_minutes: parseInt(document.getElementById("goal-input-minutes").value) || 30,
+  };
+  try {
+    await api("POST", "/goals", payload);
+    closeAddGoalPanel();
+    await loadDashboard();
+  } catch (e) { alert("Save failed: " + e.message); }
+}
+
+async function deleteGoal(id) {
+  try {
+    await fetch(`/goals/${id}`, { method: "DELETE" });
+    await loadDashboard();
+  } catch (e) { alert("Delete failed: " + e.message); }
 }
 
 // ═══════════════════════ HOME ═══════════════════════
@@ -2220,15 +2396,26 @@ function doSynthesizeFromGraph() {
 
 // ═══════════════════════ ENGLISH ═══════════════════════
 
+let _entryTagFilter = "";
+
 async function openEnglish() {
   show("english");
   await loadEntries();
 }
 
+function setEntryTagFilter(tag) {
+  _entryTagFilter = tag;
+  document.querySelectorAll("#entry-tag-filter-bar .filter-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tag === tag);
+  });
+  loadEntries();
+}
+
 async function loadEntries() {
   try {
+    const url = _entryTagFilter ? `/entries?tag=${encodeURIComponent(_entryTagFilter)}` : "/entries";
     const [entries, due] = await Promise.all([
-      api("GET", "/entries"),
+      api("GET", url),
       api("GET", "/entries/next").catch(() => null),
     ]);
     renderEntryList(entries);
@@ -2320,6 +2507,10 @@ function entryCardHTML(e) {
   const expandBtn = d.phonetics
     ? `<button class="btn-expand" onclick="openExpandPopover('${e.id}', false)" title="AI expand">⊕ More</button>`
     : "";
+  const systemTags = ["pronunciation", "expression", "vocabulary", "phrase", "interview"];
+  const tagPills = (e.tags || []).filter(t => systemTags.includes(t))
+    .map(t => `<span class="type-badge" style="cursor:pointer" onclick="setEntryTagFilter('${t}')" title="Filter by ${t}">${t}</span>`)
+    .join("");
   return `
     <div class="entry-card" id="ecard-${e.id}">
       <input type="checkbox" class="entry-select-cb" data-id="${e.id}" onchange="toggleSelectEntry(this)">
@@ -2331,6 +2522,7 @@ function entryCardHTML(e) {
       ${extended}
       <div class="entry-meta" style="margin-top:10px">
         <span class="entry-source ${e.source_type}">${e.source_type}</span>
+        ${tagPills}
         <button class="btn-tts" onclick="speakText('${escAttr(e.text)}')" title="Play pronunciation">🔊</button>
         ${enrichBtn}
         ${expandBtn}
@@ -3446,6 +3638,15 @@ function renderProblems(problemType) {
         <div style="display:flex;gap:6px;align-items:center;padding-top:4px;border-top:1px solid var(--border)">
           <span style="font-size:11px;color:var(--muted)">Rate:</span>
           ${[0,1,2,3,4,5].map(g => `<button onclick="reviewProblem('${p.id}','${problemType}',${g})" style="padding:2px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;cursor:pointer">${g}</button>`).join("")}
+          <button onclick="toggleProblemSections('${p.id}')" style="margin-left:auto;background:none;border:1px solid var(--border);color:var(--muted);font-size:11px;cursor:pointer;padding:2px 10px;border-radius:6px">Practice ▾</button>
+        </div>
+        <!-- Practice sections panel -->
+        <div id="problem-sections-${p.id}" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.5px">PRACTICE SECTIONS</span>
+            <button id="gen-btn-${p.id}" onclick="generateProblemSections('${p.id}','${problemType}')" style="background:none;border:1px solid var(--accent);color:var(--accent);font-size:11px;cursor:pointer;padding:2px 10px;border-radius:6px">✦ Generate</button>
+          </div>
+          <div id="problem-sections-list-${p.id}"></div>
         </div>
       </div>`;
   }).join("");
@@ -3528,11 +3729,80 @@ async function reviewProblem(id, problemType, grade) {
   } catch (e) { alert("Review failed: " + e.message); }
 }
 
+const _SECTION_LABEL = {
+  requirements: "Requirements",
+  entities: "Core Entities",
+  api: "API Design",
+  hld: "High-Level Design",
+  deep_dive_scaling: "Deep Dive: Scaling",
+  deep_dive_tradeoffs: "Deep Dive: Tradeoffs",
+};
+
+function toggleProblemSections(id) {
+  const panel = document.getElementById(`problem-sections-${id}`);
+  const isOpen = panel.style.display !== "none";
+  panel.style.display = isOpen ? "none" : "block";
+  if (!isOpen) loadProblemSections(id);
+}
+
+async function loadProblemSections(id) {
+  const listEl = document.getElementById(`problem-sections-list-${id}`);
+  try {
+    const sections = await api("GET", `/problems/${id}/questions`);
+    if (!sections.length) {
+      listEl.innerHTML = `<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">
+        No sections yet. Click "✦ Generate" to create Hello Interview-style practice sections.</div>`;
+      return;
+    }
+    listEl.innerHTML = sections.map(s => `
+      <div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px;border-left:3px solid var(--accent)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:11px;font-weight:600;color:var(--accent);letter-spacing:.3px">${_SECTION_LABEL[s.round] || s.round || "Section"}</span>
+          <button class="btn-tts" onclick="speakText('${escAttr(s.answer || s.question)}')" title="Listen">🔊</button>
+        </div>
+        <div style="font-size:13px;font-weight:500;line-height:1.4;margin-bottom:6px">${escHtml(s.question)}</div>
+        ${s.answer ? `<details>
+          <summary style="font-size:12px;color:var(--muted);cursor:pointer;user-select:none">Show answer</summary>
+          <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:6px">${escHtml(s.answer)}</div>
+        </details>` : ""}
+      </div>`).join("");
+  } catch (e) {
+    listEl.innerHTML = `<div style="font-size:12px;color:var(--red)">Failed to load sections</div>`;
+  }
+}
+
+async function generateProblemSections(id, problemType) {
+  const btn = document.getElementById(`gen-btn-${id}`);
+  if (!confirm("This will generate AI practice sections for this problem. Continue?")) return;
+  btn.textContent = "Generating…";
+  btn.disabled = true;
+  try {
+    const result = await api("POST", `/problems/${id}/generate-sections`);
+    await loadProblemSections(id);
+    btn.textContent = `✓ ${result.created} sections`;
+  } catch (e) {
+    alert("Generate failed: " + e.message);
+    btn.textContent = "✦ Generate";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 let _studyTagFilter = null;
 let _studyQuestions = [];
+let _studyConceptLinks = {}; // qId → [concept]
+let _allConcepts = [];
 
 async function loadStudyQuestions() {
-  _studyQuestions = await api("GET", "/questions?category=study");
+  [_studyQuestions, _allConcepts] = await Promise.all([
+    api("GET", "/questions?category=study"),
+    api("GET", "/concepts").catch(() => []),
+  ]);
+  const linkResults = await Promise.all(
+    _studyQuestions.map(q => api("GET", `/questions/${q.id}/concepts`).catch(() => []))
+  );
+  _studyConceptLinks = {};
+  _studyQuestions.forEach((q, i) => { _studyConceptLinks[q.id] = linkResults[i]; });
   renderStudyTagFilter();
   renderStudyList();
 }
@@ -3568,18 +3838,40 @@ function renderStudyList() {
   list.innerHTML = questions.map(q => {
     const followUps = (() => { try { return JSON.parse(q.notes || "[]"); } catch { return []; } })();
     const tags = (q.tags || []).filter(t => t !== "article");
+    const linkedConcepts = _studyConceptLinks[q.id] || [];
     return `
       <div class="card" style="gap:8px" id="study-card-${q.id}">
         <div style="display:flex;align-items:flex-start;gap:8px">
           <span class="type-badge ${q.q_type}" style="flex-shrink:0;margin-top:2px">${q.q_type.replace("_"," ")}</span>
           <span style="font-size:14px;font-weight:500;line-height:1.4;flex:1">${escHtml(q.question)}</span>
           <div style="display:flex;gap:4px;flex-shrink:0;margin-top:1px">
+            <button style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="toggleEvalPanel('${q.id}')">Practice</button>
             <button style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="toggleShadowPanel('${q.id}')">Shadow</button>
+            <button style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="toggleAttemptHistory('${q.id}')">History</button>
             <button style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="toggleStudyEdit('${q.id}')">Edit</button>
             <button style="background:none;border:none;color:var(--red);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px" onclick="deleteStudyQ('${q.id}')">Delete</button>
           </div>
         </div>
         ${tags.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap">${tags.map(t=>`<span style="font-size:11px;padding:1px 7px;border-radius:99px;background:var(--bg);color:var(--muted);border:1px solid var(--border)">${escHtml(t)}</span>`).join("")}</div>` : ""}
+        <div id="concept-links-${q.id}" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+          ${linkedConcepts.map(c => `
+            <span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:1px 6px 1px 8px;border-radius:99px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent)">
+              ${escHtml(c.title)}
+              <button onclick="unlinkConcept('${q.id}','${c.id}')" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;line-height:1;padding:0 1px;opacity:0.7" title="Remove link">×</button>
+            </span>`).join("")}
+          <button onclick="toggleConceptLinkPanel('${q.id}')" style="background:none;border:1px dashed var(--border);color:var(--muted);font-size:11px;cursor:pointer;padding:1px 8px;border-radius:99px" title="Link concept">+ concept</button>
+        </div>
+        <div id="concept-link-panel-${q.id}" style="display:none;padding:8px;background:var(--bg);border-radius:6px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Link a concept:</div>
+          <div style="display:flex;gap:6px">
+            <select id="concept-link-select-${q.id}" style="flex:1;font-size:12px;padding:4px 6px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+              <option value="">— choose —</option>
+              ${_allConcepts.filter(c => !linkedConcepts.some(lc => lc.id === c.id)).map(c => `<option value="${c.id}">${escHtml(c.title)}</option>`).join("")}
+            </select>
+            <button class="btn btn-primary" style="width:auto;padding:4px 12px;font-size:12px" onclick="addConceptLink('${q.id}')">Link</button>
+            <button class="btn btn-secondary" style="width:auto;padding:4px 10px;font-size:12px" onclick="toggleConceptLinkPanel('${q.id}')">Cancel</button>
+          </div>
+        </div>
         ${q.answer ? `
           <details style="margin-left:2px">
             <summary style="font-size:12px;color:var(--accent);cursor:pointer;user-select:none">Show answer</summary>
@@ -3592,6 +3884,26 @@ function renderStudyList() {
               ${followUps.map(f => `<div style="font-size:12px;color:var(--muted);margin-bottom:3px">• ${escHtml(f)}</div>`).join("")}
             </div>
           </details>` : ""}
+        <!-- Evaluate panel -->
+        <div id="eval-panel-${q.id}" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px">
+          <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.5px;margin-bottom:8px">PRACTICE & EVALUATE</div>
+          ${q.key_points && q.key_points.length ? `
+          <div style="margin-bottom:8px;padding:8px;background:var(--bg);border-radius:6px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Key points to cover:</div>
+            ${q.key_points.map(kp => `<div style="font-size:12px;color:var(--muted);margin-bottom:2px">• ${escHtml(kp.text || kp)}</div>`).join("")}
+          </div>` : ""}
+          <textarea id="eval-input-${q.id}" placeholder="Type your answer here…" style="min-height:80px;margin-bottom:8px"></textarea>
+          <div style="display:flex;gap:6px;margin-bottom:10px">
+            <button class="btn btn-primary" style="width:auto;padding:6px 14px;font-size:13px" id="eval-btn-${q.id}" onclick="evaluateAnswer('${q.id}')">Evaluate</button>
+            <button class="btn btn-secondary" style="width:auto;padding:6px 14px;font-size:13px" onclick="toggleEvalPanel('${q.id}')">Cancel</button>
+          </div>
+          <div id="eval-result-${q.id}" style="display:none"></div>
+        </div>
+        <!-- Attempt history panel -->
+        <div id="attempt-history-${q.id}" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px">
+          <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.5px;margin-bottom:8px">ANSWER HISTORY</div>
+          <div id="attempt-list-${q.id}" style="color:var(--muted);font-size:12px">Loading…</div>
+        </div>
         <!-- Shadow reading panel -->
         <div id="shadow-panel-${q.id}" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -3650,6 +3962,142 @@ async function deleteStudyQ(id) {
     await fetch(`/questions/${id}`, { method: "DELETE" });
     await loadStudyQuestions();
   } catch (e) { alert("Delete failed: " + e.message); }
+}
+
+function toggleEvalPanel(qId) {
+  const panel = document.getElementById(`eval-panel-${qId}`);
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+  document.getElementById(`eval-result-${qId}`).style.display = "none";
+}
+
+async function evaluateAnswer(qId) {
+  const input = document.getElementById(`eval-input-${qId}`);
+  const text = input.value.trim();
+  if (!text) return;
+  const btn = document.getElementById(`eval-btn-${qId}`);
+  const resultEl = document.getElementById(`eval-result-${qId}`);
+  btn.textContent = "Evaluating…";
+  btn.disabled = true;
+  try {
+    const result = await api("POST", `/questions/${qId}/evaluate`, { response_text: text });
+    const pct = Math.round((result.score || 0) * 100);
+    const scoreColor = pct >= 80 ? "var(--green,#4caf50)" : pct >= 50 ? "var(--accent)" : "var(--red)";
+    const coverageHtml = (result.coverage || []).map(c => `
+      <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px">
+        <span style="font-size:13px;flex-shrink:0;color:${c.hit ? "var(--accent)" : "var(--red,#f44)"}">${c.hit ? "✓" : "✗"}</span>
+        <div>
+          <span style="font-size:12px;color:var(--text)">${escHtml(c.point)}</span>
+          ${c.note ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">— ${escHtml(c.note)}</span>` : ""}
+        </div>
+      </div>`).join("");
+    const expressionHtml = (result.expression_feedback || []).map(f => `
+      <div style="margin-bottom:6px;padding:6px 8px;background:var(--bg);border-radius:4px;border-left:3px solid var(--accent)">
+        <div style="font-size:12px;color:var(--muted);text-decoration:line-through">${escHtml(f.original)}</div>
+        <div style="font-size:12px;color:var(--text);margin-top:2px">→ ${escHtml(f.suggestion)}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+          <span style="font-size:10px;color:var(--muted);padding:1px 5px;border-radius:4px;border:1px solid var(--border)">${escHtml(f.issue || "")}</span>
+          <button onclick="addExpressionToVocab('${escAttr(f.original)}','${escAttr(f.suggestion)}')" style="background:none;border:1px solid var(--border);color:var(--muted);font-size:10px;cursor:pointer;padding:1px 6px;border-radius:4px">+ vocab</button>
+        </div>
+      </div>`).join("");
+    resultEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:24px;font-weight:700;color:${scoreColor}">${pct}%</span>
+        <span style="font-size:12px;color:var(--muted)">${(result.coverage||[]).filter(c=>c.hit).length} / ${(result.coverage||[]).length} key points covered</span>
+      </div>
+      ${coverageHtml ? `<div style="margin-bottom:10px">${coverageHtml}</div>` : ""}
+      ${expressionHtml ? `<div><div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:6px">EXPRESSION FEEDBACK</div>${expressionHtml}</div>` : ""}`;
+    resultEl.style.display = "block";
+    // refresh history badge
+    await loadAttemptHistory(qId);
+  } catch (e) {
+    resultEl.innerHTML = `<div style="color:var(--red);font-size:12px">Evaluation failed: ${escHtml(e.message)}</div>`;
+    resultEl.style.display = "block";
+  } finally {
+    btn.textContent = "Evaluate";
+    btn.disabled = false;
+  }
+}
+
+async function addExpressionToVocab(original, suggestion) {
+  try {
+    await api("POST", "/entries", {
+      text: original,
+      data: { context_note: `Better: ${suggestion}` },
+      tags: ["expression"],
+    });
+  } catch (e) { alert("Failed: " + e.message); }
+}
+
+async function toggleAttemptHistory(qId) {
+  const panel = document.getElementById(`attempt-history-${qId}`);
+  const isOpen = panel.style.display !== "none";
+  panel.style.display = isOpen ? "none" : "block";
+  if (!isOpen) await loadAttemptHistory(qId);
+}
+
+async function loadAttemptHistory(qId) {
+  const listEl = document.getElementById(`attempt-list-${qId}`);
+  try {
+    const attempts = await api("GET", `/questions/${qId}/attempts`);
+    if (!attempts.length) {
+      listEl.innerHTML = `<div style="text-align:center;padding:12px;color:var(--muted)">No attempts yet. Practice this question to build history.</div>`;
+      return;
+    }
+    listEl.innerHTML = attempts.map(a => {
+      const pct = Math.round((a.score || 0) * 100);
+      const scoreColor = pct >= 80 ? "var(--green,#4caf50)" : pct >= 50 ? "var(--accent)" : "var(--red)";
+      const covered = (a.coverage || []).filter(c => c.hit).length;
+      const total = (a.coverage || []).length;
+      const date = new Date(a.attempted_at).toLocaleDateString("en-US", {month:"short", day:"numeric"});
+      return `
+        <div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:11px;color:var(--muted)">${date}</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              ${total ? `<span style="font-size:11px;color:var(--muted)">${covered}/${total} points</span>` : ""}
+              <span style="font-size:13px;font-weight:700;color:${scoreColor}">${pct}%</span>
+              <button onclick="deleteAttempt('${a.id}','${qId}')" style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer;opacity:.6" title="Delete">×</button>
+            </div>
+          </div>
+          ${a.response_text ? `<div style="font-size:12px;color:var(--text);line-height:1.5;margin-bottom:4px">${escHtml(a.response_text.slice(0,200))}${a.response_text.length > 200 ? "…" : ""}</div>` : ""}
+          ${a.coverage && a.coverage.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
+            ${a.coverage.map(c => `<span style="font-size:10px;padding:1px 6px;border-radius:99px;background:${c.hit ? "color-mix(in srgb,var(--accent) 15%,transparent)" : "color-mix(in srgb,var(--red,#f44) 10%,transparent)"};color:${c.hit ? "var(--accent)" : "var(--red,#f44)"}">${c.hit ? "✓" : "✗"} ${escHtml(c.point)}</span>`).join("")}
+          </div>` : ""}
+          ${a.ai_feedback ? `<div style="font-size:11px;color:var(--muted);line-height:1.5;padding:6px 8px;background:var(--card);border-radius:4px">${escHtml(a.ai_feedback)}</div>` : ""}
+        </div>`;
+    }).join("");
+  } catch (e) {
+    listEl.innerHTML = `<div style="color:var(--red);font-size:12px">Failed to load history</div>`;
+  }
+}
+
+async function deleteAttempt(attemptId, qId) {
+  try {
+    await fetch(`/attempts/${attemptId}`, { method: "DELETE" });
+    await loadAttemptHistory(qId);
+  } catch (e) { alert("Delete failed: " + e.message); }
+}
+
+function toggleConceptLinkPanel(qId) {
+  const panel = document.getElementById(`concept-link-panel-${qId}`);
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+async function addConceptLink(qId) {
+  const sel = document.getElementById(`concept-link-select-${qId}`);
+  const conceptId = sel.value;
+  if (!conceptId) return;
+  try {
+    await api("POST", `/questions/${qId}/concepts`, { concept_id: conceptId });
+    await loadStudyQuestions();
+  } catch (e) { alert("Link failed: " + e.message); }
+}
+
+async function unlinkConcept(qId, conceptId) {
+  try {
+    await fetch(`/questions/${qId}/concepts/${conceptId}`, { method: "DELETE" });
+    await loadStudyQuestions();
+  } catch (e) { alert("Unlink failed: " + e.message); }
 }
 
 // ---------------------------------------------------------------------------
@@ -3731,16 +4179,46 @@ function renderShadowResult(id, data) {
   scoreEl.textContent = pct + "%";
   scoreEl.style.color = pct >= 90 ? "var(--green)" : pct >= 70 ? "var(--accent)" : "var(--red)";
 
+  const errorWords = [];
   wordsEl.innerHTML = (data.words || []).map(w => {
     if (w.status === "ok") return `<span style="color:var(--text)">${escHtml(w.reference)} </span>`;
-    if (w.status === "substituted") return `<span style="color:var(--red);text-decoration:underline" title="heard: ${escHtml(w.heard||'')}">${escHtml(w.reference)} </span>`;
-    if (w.status === "omitted")     return `<span style="color:var(--red);opacity:.5">[${escHtml(w.reference)}] </span>`;
-    if (w.status === "inserted")    return `<span style="color:var(--yellow)">(${escHtml(w.heard||'')}) </span>`;
+    if (w.status === "substituted") {
+      errorWords.push(w.reference);
+      return `<span style="color:var(--red);text-decoration:underline;cursor:pointer" title="heard: ${escHtml(w.heard||'')} — click to add to vocab" onclick="addPronunciationToVocab('${escAttr(w.reference)}','${id}')">${escHtml(w.reference)} </span>`;
+    }
+    if (w.status === "omitted") {
+      errorWords.push(w.reference);
+      return `<span style="color:var(--red);opacity:.5;cursor:pointer" title="omitted — click to add to vocab" onclick="addPronunciationToVocab('${escAttr(w.reference)}','${id}')">[${escHtml(w.reference)}] </span>`;
+    }
+    if (w.status === "inserted") return `<span style="color:var(--yellow)">(${escHtml(w.heard||'')}) </span>`;
     return "";
   }).join("");
+  // auto-add words with severe errors (omitted)
+  const autoAdd = (data.words || []).filter(w => w.status === "omitted").map(w => w.reference);
+  autoAdd.forEach(word => addPronunciationToVocab(word, id, true));
 
   feedbackEl.textContent = data.feedback || "";
   resultEl.style.display = "block";
+}
+
+async function addPronunciationToVocab(word, questionId, silent = false) {
+  if (!word) return;
+  try {
+    await api("POST", "/entries", {
+      text: word,
+      tags: ["pronunciation"],
+      source_ref: questionId || undefined,
+    });
+    if (!silent) {
+      const toast = document.createElement("div");
+      toast.textContent = `"${word}" added to vocab`;
+      toast.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;z-index:9999;pointer-events:none";
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    }
+  } catch (e) {
+    if (!silent) console.warn("addPronunciationToVocab failed:", e.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -4568,7 +5046,7 @@ if ("speechSynthesis" in window) {
   window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
 }
 loadStats();
-loadPlan();
+loadDashboard();
 api("GET", "/entries/next").then(e => updateEnglishBadges(e ? 1 : 0)).catch(() => {});
 updateInboxBadge();
 </script>

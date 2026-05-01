@@ -163,6 +163,7 @@ class Entry(BaseModel):
     source_type: EntryType = EntryType.MANUAL
     source_ref: Optional[str] = None
     data: EntryData = EntryData()
+    tags: list[str] = []
     weight: float = 1.0
     created_at: datetime
     updated_at: datetime
@@ -300,10 +301,13 @@ class InterviewQuestion(BaseModel):
     category: QuestionCategory = QuestionCategory.INTERVIEW
     application_id: Optional[str] = None
     source_id: Optional[str] = None
+    problem_id: Optional[str] = None
     round: Optional[str] = None
     self_score: int = 0
     tags: list[str] = []
     notes: Optional[str] = None
+    key_points: list[dict] = []
+    sub_questions: list[dict] = []
     ef: float = 2.5
     interval: int = 0
     reps: int = 0
@@ -424,3 +428,38 @@ class PlanTask(BaseModel):
 class DailyPlan(BaseModel):
     date: str
     tasks: list[PlanTask] = []
+
+
+# ---------------------------------------------------------------------------
+# Question Attempts
+# ---------------------------------------------------------------------------
+
+class QuestionAttempt(BaseModel):
+    id: str
+    question_id: str
+    response_text: str
+    coverage: list[dict] = []
+    ai_feedback: Optional[str] = None
+    score: float = 0.0
+    attempted_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Coach Goals
+# ---------------------------------------------------------------------------
+
+class GoalType(str, Enum):
+    INTERVIEW = "interview"
+    SKILL = "skill"
+    CURRICULUM = "curriculum"
+
+
+class CoachGoal(BaseModel):
+    id: str
+    title: str
+    goal_type: GoalType
+    ref_id: Optional[str] = None
+    deadline: Optional[date] = None
+    priority: int = 2
+    daily_minutes: int = 30
+    created_at: datetime

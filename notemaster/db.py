@@ -13,6 +13,8 @@ from notemaster.models import (
     DailyPlan, PlanTask, PlanBlock, PlanTaskType,
     Source, SourceType,
     Problem, ProblemType, ProblemDifficulty, ProblemReviewRecord,
+    CoachGoal, GoalType,
+    QuestionAttempt,
 )
 
 _DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "notemaster.db"
@@ -54,6 +56,14 @@ class Database:
     def _migrate(self):
         import json as _json
 
+        # entries: add tags column if missing
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='entries'"
+        ).fetchone()
+        if row and "tags" not in row[0]:
+            self.conn.execute("ALTER TABLE entries ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+            self.conn.commit()
+
         # interview_questions: add category column if missing
         row = self.conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='interview_questions'"
@@ -71,6 +81,31 @@ class Database:
         if row and "source_id" not in row[0]:
             self.conn.execute(
                 "ALTER TABLE interview_questions ADD COLUMN source_id TEXT"
+            )
+            self.conn.commit()
+
+        # interview_questions: add problem_id column if missing
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='interview_questions'"
+        ).fetchone()
+        if row and "problem_id" not in row[0]:
+            self.conn.execute(
+                "ALTER TABLE interview_questions ADD COLUMN problem_id TEXT"
+            )
+            self.conn.commit()
+
+        # interview_questions: add key_points + sub_questions columns if missing
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='interview_questions'"
+        ).fetchone()
+        if row and "key_points" not in row[0]:
+            self.conn.execute(
+                "ALTER TABLE interview_questions ADD COLUMN key_points TEXT NOT NULL DEFAULT '[]'"
+            )
+            self.conn.commit()
+        if row and "sub_questions" not in row[0]:
+            self.conn.execute(
+                "ALTER TABLE interview_questions ADD COLUMN sub_questions TEXT NOT NULL DEFAULT '[]'"
             )
             self.conn.commit()
 
@@ -202,6 +237,7 @@ class Database:
                 source_type TEXT NOT NULL DEFAULT 'manual',
                 source_ref  TEXT,
                 data        TEXT NOT NULL DEFAULT '{}',
+                tags        TEXT NOT NULL DEFAULT '[]',
                 weight      REAL NOT NULL DEFAULT 1.0,
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
@@ -258,17 +294,21 @@ class Database:
                 category        TEXT NOT NULL DEFAULT 'interview',
                 application_id  TEXT,
                 source_id       TEXT,
+                problem_id      TEXT,
                 round           TEXT,
                 self_score      INTEGER NOT NULL DEFAULT 0,
                 tags            TEXT NOT NULL DEFAULT '[]',
                 notes           TEXT,
+                key_points      TEXT NOT NULL DEFAULT '[]',
+                sub_questions   TEXT NOT NULL DEFAULT '[]',
                 ef              REAL NOT NULL DEFAULT 2.5,
                 interval        INTEGER NOT NULL DEFAULT 0,
                 reps            INTEGER NOT NULL DEFAULT 0,
                 next_review_at  TEXT,
                 created_at      TEXT NOT NULL,
                 FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE SET NULL,
-                FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL
+                FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL,
+                FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS sync_log (
@@ -341,6 +381,28 @@ class Database:
                 content_cache  TEXT,
                 tags           TEXT NOT NULL DEFAULT '[]',
                 created_at     TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS coach_goals (
+                id             TEXT PRIMARY KEY,
+                title          TEXT NOT NULL,
+                goal_type      TEXT NOT NULL,
+                ref_id         TEXT,
+                deadline       TEXT,
+                priority       INTEGER NOT NULL DEFAULT 2,
+                daily_minutes  INTEGER NOT NULL DEFAULT 30,
+                created_at     TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS question_attempts (
+                id             TEXT PRIMARY KEY,
+                question_id    TEXT NOT NULL,
+                response_text  TEXT NOT NULL,
+                coverage       TEXT NOT NULL DEFAULT '[]',
+                ai_feedback    TEXT,
+                score          REAL NOT NULL DEFAULT 0.0,
+                attempted_at   TEXT NOT NULL,
+                FOREIGN KEY (question_id) REFERENCES interview_questions(id) ON DELETE CASCADE
             );
         """)
 
@@ -718,12 +780,13 @@ class Database:
         self.conn.execute(
             """
             INSERT INTO entries
-                (id, text, source_type, source_ref, data, weight, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, text, source_type, source_ref, data, tags, weight, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.id, entry.text, entry.source_type.value, entry.source_ref,
                 json.dumps(entry.data.model_dump()),
+                json.dumps(entry.tags),
                 entry.weight, now, now,
             ),
         )
@@ -736,23 +799,27 @@ class Database:
         ).fetchone()
         return _row_to_entry(row) if row else None
 
-    def get_entries(self, source_type: Optional[EntryType] = None) -> list[Entry]:
+    def get_entries(self, source_type: Optional[EntryType] = None, tag: Optional[str] = None) -> list[Entry]:
+        import json
+        clauses, params = [], []
         if source_type:
-            rows = self.conn.execute(
-                "SELECT * FROM entries WHERE source_type = ? ORDER BY created_at DESC",
-                (source_type.value,),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM entries ORDER BY created_at DESC"
-            ).fetchall()
-        return [_row_to_entry(r) for r in rows]
+            clauses.append("source_type = ?")
+            params.append(source_type.value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.conn.execute(
+            f"SELECT * FROM entries {where} ORDER BY created_at DESC", params
+        ).fetchall()
+        entries = [_row_to_entry(r) for r in rows]
+        if tag:
+            entries = [e for e in entries if tag in e.tags]
+        return entries
 
     def update_entry(
         self,
         entry_id: str,
         text: Optional[str] = None,
         data: Optional[EntryData] = None,
+        tags: Optional[list] = None,
     ) -> Optional[Entry]:
         import json
         existing = self.get_entry(entry_id)
@@ -767,12 +834,14 @@ class Database:
             updates.append("text = ?")
             params.append(text)
         if data is not None:
-            # Merge: only overwrite fields that are explicitly set (non-default)
             merged = existing.data.model_dump()
             incoming = data.model_dump(exclude_unset=True)
             merged.update(incoming)
             updates.append("data = ?")
             params.append(json.dumps(merged))
+        if tags is not None:
+            updates.append("tags = ?")
+            params.append(json.dumps(tags))
 
         if not updates:
             return existing
@@ -977,14 +1046,18 @@ class Database:
         self.conn.execute(
             """
             INSERT INTO interview_questions
-                (id, question, answer, q_type, source, category, application_id, source_id, round,
-                 self_score, tags, notes, ef, interval, reps, next_review_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, question, answer, q_type, source, category, application_id, source_id,
+                 problem_id, round, self_score, tags, notes, key_points, sub_questions,
+                 ef, interval, reps, next_review_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 q.id, q.question, q.answer, q.q_type.value, q.source.value,
-                q.category.value, q.application_id, q.source_id, q.round, q.self_score,
-                json.dumps(q.tags), q.notes, q.ef, q.interval, q.reps,
+                q.category.value, q.application_id, q.source_id, q.problem_id,
+                q.round, q.self_score,
+                json.dumps(q.tags), q.notes,
+                json.dumps(q.key_points), json.dumps(q.sub_questions),
+                q.ef, q.interval, q.reps,
                 q.next_review_at.isoformat() if q.next_review_at else None,
                 q.created_at.isoformat(),
             ),
@@ -1030,10 +1103,17 @@ class Database:
         ).fetchall()
         return [_row_to_question(r) for r in rows]
 
+    def get_questions_by_problem(self, problem_id: str) -> list[InterviewQuestion]:
+        rows = self.conn.execute(
+            "SELECT * FROM interview_questions WHERE problem_id = ? ORDER BY created_at ASC",
+            (problem_id,),
+        ).fetchall()
+        return [_row_to_question(r) for r in rows]
+
     def update_question(self, question_id: str, **kwargs) -> Optional[InterviewQuestion]:
         import json
         allowed = {"question", "answer", "q_type", "source", "application_id",
-                   "round", "self_score", "tags", "notes"}
+                   "round", "self_score", "tags", "notes", "key_points", "sub_questions"}
         updates, params = [], []
         for key, value in kwargs.items():
             if key not in allowed:
@@ -1043,7 +1123,7 @@ class Database:
                 params.append(value.value)
             elif key == "source" and isinstance(value, QuestionSource):
                 params.append(value.value)
-            elif key == "tags" and isinstance(value, list):
+            elif key in {"tags", "key_points", "sub_questions"} and isinstance(value, list):
                 params.append(json.dumps(value))
             else:
                 params.append(value)
@@ -1411,6 +1491,107 @@ class Database:
         )
         self.conn.commit()
 
+    # --- Question Attempts ---
+
+    def create_attempt(self, a: QuestionAttempt) -> QuestionAttempt:
+        import json
+        self.conn.execute(
+            "INSERT INTO question_attempts (id, question_id, response_text, coverage, ai_feedback, score, attempted_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (a.id, a.question_id, a.response_text, json.dumps(a.coverage),
+             a.ai_feedback, a.score, a.attempted_at.isoformat()),
+        )
+        self.conn.commit()
+        return a
+
+    def list_attempts(self, question_id: str) -> list[QuestionAttempt]:
+        rows = self.conn.execute(
+            "SELECT * FROM question_attempts WHERE question_id = ? ORDER BY attempted_at DESC",
+            (question_id,),
+        ).fetchall()
+        return [_row_to_attempt(r) for r in rows]
+
+    def delete_attempt(self, attempt_id: str) -> bool:
+        cur = self.conn.execute("DELETE FROM question_attempts WHERE id = ?", (attempt_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    # --- Coach Goals ---
+
+    def create_goal(self, g: CoachGoal) -> CoachGoal:
+        self.conn.execute(
+            "INSERT INTO coach_goals (id, title, goal_type, ref_id, deadline, priority, daily_minutes, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (g.id, g.title, g.goal_type.value, g.ref_id,
+             g.deadline.isoformat() if g.deadline else None,
+             g.priority, g.daily_minutes, g.created_at.isoformat()),
+        )
+        self.conn.commit()
+        return g
+
+    def get_goal(self, goal_id: str) -> Optional[CoachGoal]:
+        row = self.conn.execute("SELECT * FROM coach_goals WHERE id = ?", (goal_id,)).fetchone()
+        return _row_to_goal(row) if row else None
+
+    def list_goals(self) -> list[CoachGoal]:
+        rows = self.conn.execute("SELECT * FROM coach_goals ORDER BY priority ASC, created_at ASC").fetchall()
+        return [_row_to_goal(r) for r in rows]
+
+    def update_goal(self, goal_id: str, **kwargs) -> Optional[CoachGoal]:
+        allowed = {"title", "goal_type", "ref_id", "deadline", "priority", "daily_minutes"}
+        updates, params = [], []
+        for key, value in kwargs.items():
+            if key not in allowed:
+                continue
+            updates.append(f"{key} = ?")
+            if key == "goal_type" and isinstance(value, GoalType):
+                params.append(value.value)
+            elif key == "deadline" and hasattr(value, "isoformat"):
+                params.append(value.isoformat())
+            else:
+                params.append(value)
+        if not updates:
+            return self.get_goal(goal_id)
+        params.append(goal_id)
+        self.conn.execute(f"UPDATE coach_goals SET {', '.join(updates)} WHERE id = ?", params)
+        self.conn.commit()
+        return self.get_goal(goal_id)
+
+    def delete_goal(self, goal_id: str) -> bool:
+        cur = self.conn.execute("DELETE FROM coach_goals WHERE id = ?", (goal_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def get_due_counts(self) -> dict:
+        now = datetime.now().isoformat()
+        concepts = self.conn.execute(
+            "SELECT COUNT(*) FROM review_records WHERE next_review_at <= ?", (now,)
+        ).fetchone()[0]
+        entries = self.conn.execute(
+            "SELECT COUNT(*) FROM entry_review_records WHERE next_review_at <= ?", (now,)
+        ).fetchone()[0]
+        questions = self.conn.execute(
+            "SELECT COUNT(*) FROM interview_questions WHERE next_review_at IS NOT NULL AND next_review_at <= ?", (now,)
+        ).fetchone()[0]
+        problems = self.conn.execute(
+            "SELECT COUNT(*) FROM problems WHERE next_review_at IS NOT NULL AND next_review_at <= ?", (now,)
+        ).fetchone()[0]
+        return {
+            "concepts": concepts,
+            "entries": entries,
+            "questions": questions,
+            "problems": problems,
+        }
+
+    def get_week_done_count(self) -> int:
+        from datetime import date, timedelta
+        today = date.today()
+        monday = (today - timedelta(days=today.weekday())).isoformat()
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM plan_tasks WHERE done = 1 AND plan_date >= ?", (monday,)
+        ).fetchone()
+        return row[0] if row else 0
+
     # --- Problems ---
 
     def create_problem(self, p: Problem) -> Problem:
@@ -1716,6 +1897,7 @@ def _row_to_round(row: sqlite3.Row) -> ApplicationRound:
 def _row_to_question(row: sqlite3.Row) -> InterviewQuestion:
     import json
     from notemaster.models import QuestionCategory
+    keys = row.keys()
     return InterviewQuestion(
         id=row["id"],
         question=row["question"],
@@ -1724,11 +1906,14 @@ def _row_to_question(row: sqlite3.Row) -> InterviewQuestion:
         source=QuestionSource(row["source"]),
         category=QuestionCategory(row["category"]) if row["category"] else QuestionCategory.INTERVIEW,
         application_id=row["application_id"],
-        source_id=row["source_id"] if "source_id" in row.keys() else None,
+        source_id=row["source_id"] if "source_id" in keys else None,
+        problem_id=row["problem_id"] if "problem_id" in keys else None,
         round=row["round"],
         self_score=row["self_score"],
         tags=json.loads(row["tags"]),
         notes=row["notes"],
+        key_points=json.loads(row["key_points"]) if "key_points" in keys and row["key_points"] else [],
+        sub_questions=json.loads(row["sub_questions"]) if "sub_questions" in keys and row["sub_questions"] else [],
         ef=row["ef"],
         interval=row["interval"],
         reps=row["reps"],
@@ -1770,6 +1955,7 @@ def _row_to_source(row: sqlite3.Row) -> Source:
 
 def _row_to_entry(row: sqlite3.Row) -> Entry:
     import json
+    keys = row.keys()
     raw = json.loads(row["data"] or "{}")
     return Entry(
         id=row["id"],
@@ -1777,7 +1963,37 @@ def _row_to_entry(row: sqlite3.Row) -> Entry:
         source_type=EntryType(row["source_type"]),
         source_ref=row["source_ref"],
         data=EntryData(**{k: v for k, v in raw.items() if v is not None}),
+        tags=json.loads(row["tags"]) if "tags" in keys and row["tags"] else [],
         weight=row["weight"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
+    )
+
+
+
+def _row_to_goal(row: sqlite3.Row) -> CoachGoal:
+    from datetime import date as date_type
+    deadline = date_type.fromisoformat(row["deadline"]) if row["deadline"] else None
+    return CoachGoal(
+        id=row["id"],
+        title=row["title"],
+        goal_type=GoalType(row["goal_type"]),
+        ref_id=row["ref_id"],
+        deadline=deadline,
+        priority=row["priority"],
+        daily_minutes=row["daily_minutes"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def _row_to_attempt(row: sqlite3.Row) -> QuestionAttempt:
+    import json
+    return QuestionAttempt(
+        id=row["id"],
+        question_id=row["question_id"],
+        response_text=row["response_text"],
+        coverage=json.loads(row["coverage"]) if row["coverage"] else [],
+        ai_feedback=row["ai_feedback"],
+        score=row["score"],
+        attempted_at=datetime.fromisoformat(row["attempted_at"]),
     )

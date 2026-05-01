@@ -119,12 +119,12 @@ class TestGetEntries:
     def test_filter_by_source_type(self, client):
         tc, mock_db = client
         tc.get("/entries?source_type=manual")
-        mock_db.get_entries.assert_called_with(source_type=EntryType.MANUAL)
+        mock_db.get_entries.assert_called_with(source_type=EntryType.MANUAL, tag=None)
 
     def test_no_filter_returns_all(self, client):
         tc, mock_db = client
         tc.get("/entries")
-        mock_db.get_entries.assert_called_with(source_type=None)
+        mock_db.get_entries.assert_called_with(source_type=None, tag=None)
 
 
 # ---------------------------------------------------------------------------

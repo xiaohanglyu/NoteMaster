@@ -20,6 +20,8 @@ from notemaster.models import (
     DailyPlan, PlanTask, PlanBlock, PlanTaskType,
     Source, SourceType,
     Problem, ProblemType, ProblemDifficulty, ProblemReviewRecord,
+    CoachGoal, GoalType,
+    QuestionAttempt,
 )
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
@@ -446,11 +448,14 @@ class CreateEntryRequest(BaseModel):
     text: str
     source_type: EntryType = EntryType.MANUAL
     source_ref: Optional[str] = None
+    data: Optional[EntryData] = None
+    tags: list[str] = []
 
 
 class UpdateEntryRequest(BaseModel):
     text: Optional[str] = None
     data: Optional[EntryData] = None
+    tags: Optional[list[str]] = None
 
 
 class RecordEntryReviewRequest(BaseModel):
@@ -530,6 +535,8 @@ def create_entry(req: CreateEntryRequest, background_tasks: BackgroundTasks, db:
         text=req.text,
         source_type=req.source_type,
         source_ref=req.source_ref,
+        data=req.data or EntryData(),
+        tags=req.tags,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -596,8 +603,8 @@ def next_entry(db: Database = Depends(get_db)):
 
 
 @app.get("/entries", response_model=list[Entry])
-def list_entries(source_type: Optional[EntryType] = None, db: Database = Depends(get_db)):
-    return db.get_entries(source_type=source_type)
+def list_entries(source_type: Optional[EntryType] = None, tag: Optional[str] = None, db: Database = Depends(get_db)):
+    return db.get_entries(source_type=source_type, tag=tag)
 
 
 @app.get("/entries/{entry_id}", response_model=Entry)
@@ -610,7 +617,7 @@ def get_entry(entry_id: str, db: Database = Depends(get_db)):
 
 @app.patch("/entries/{entry_id}", response_model=Entry)
 def update_entry(entry_id: str, req: UpdateEntryRequest, db: Database = Depends(get_db)):
-    entry = db.update_entry(entry_id, text=req.text, data=req.data)
+    entry = db.update_entry(entry_id, text=req.text, data=req.data, tags=req.tags)
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
     return entry
@@ -815,6 +822,8 @@ class UpdateQuestionRequest(BaseModel):
     self_score: Optional[int] = None
     tags: Optional[list[str]] = None
     notes: Optional[str] = None
+    key_points: Optional[list[dict]] = None
+    sub_questions: Optional[list[dict]] = None
 
 
 class ReviewQuestionRequest(BaseModel):
@@ -830,10 +839,14 @@ def _question_to_dict(q: InterviewQuestion) -> dict:
         "source": q.source.value,
         "category": q.category.value,
         "application_id": q.application_id,
+        "source_id": q.source_id,
+        "problem_id": q.problem_id,
         "round": q.round,
         "self_score": q.self_score,
         "tags": q.tags,
         "notes": q.notes,
+        "key_points": q.key_points,
+        "sub_questions": q.sub_questions,
         "ef": q.ef,
         "interval": q.interval,
         "reps": q.reps,
@@ -1349,6 +1362,39 @@ def review_problem(problem_id: str, req: ProblemReviewRequest, db: Database = De
         raise HTTPException(404)
 
 
+@app.get("/problems/{problem_id}/questions")
+def get_problem_questions(problem_id: str, db: Database = Depends(get_db)):
+    if not db.get_problem(problem_id):
+        raise HTTPException(404)
+    return db.get_questions_by_problem(problem_id)
+
+
+@app.post("/problems/{problem_id}/generate-sections")
+def generate_problem_sections(problem_id: str, db: Database = Depends(get_db)):
+    problem = db.get_problem(problem_id)
+    if not problem:
+        raise HTTPException(404)
+    sections = ai.generate_sd_sections(problem.title, problem.problem_type.value)
+    created = 0
+    import uuid
+    for s in sections:
+        q = InterviewQuestion(
+            id=str(uuid.uuid4()),
+            question=s["question"],
+            answer=s.get("answer") or None,
+            q_type=QuestionType.SYSTEM_DESIGN,
+            source=QuestionSource.MOCK,
+            category=QuestionCategory.STUDY,
+            problem_id=problem_id,
+            round=s.get("round"),
+            tags=[problem.problem_type.value],
+            created_at=datetime.now(),
+        )
+        db.create_question(q)
+        created += 1
+    return {"problem_id": problem_id, "created": created}
+
+
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
@@ -1632,6 +1678,183 @@ def regenerate_plan(db: Database = Depends(get_db)):
     plan = _generate_plan(today, db)
     db.save_plan(plan)
     return plan
+
+
+# ---------------------------------------------------------------------------
+# Coach Goals
+# ---------------------------------------------------------------------------
+
+class CreateGoalRequest(BaseModel):
+    title: str
+    goal_type: GoalType
+    ref_id: Optional[str] = None
+    deadline: Optional[str] = None
+    priority: int = 2
+    daily_minutes: int = 30
+
+
+class UpdateGoalRequest(BaseModel):
+    title: Optional[str] = None
+    goal_type: Optional[GoalType] = None
+    ref_id: Optional[str] = None
+    deadline: Optional[str] = None
+    priority: Optional[int] = None
+    daily_minutes: Optional[int] = None
+
+
+@app.get("/goals")
+def list_goals(db: Database = Depends(get_db)):
+    return db.list_goals()
+
+
+@app.post("/goals")
+def create_goal(req: CreateGoalRequest, db: Database = Depends(get_db)):
+    import uuid
+    from datetime import date as date_type
+    deadline = date_type.fromisoformat(req.deadline) if req.deadline else None
+    g = CoachGoal(
+        id=str(uuid.uuid4()),
+        title=req.title,
+        goal_type=req.goal_type,
+        ref_id=req.ref_id,
+        deadline=deadline,
+        priority=req.priority,
+        daily_minutes=req.daily_minutes,
+        created_at=datetime.now(),
+    )
+    return db.create_goal(g)
+
+
+@app.patch("/goals/{goal_id}")
+def update_goal(goal_id: str, req: UpdateGoalRequest, db: Database = Depends(get_db)):
+    if not db.get_goal(goal_id):
+        raise HTTPException(404)
+    updates = {k: v for k, v in req.model_dump(exclude_none=True).items()}
+    return db.update_goal(goal_id, **updates)
+
+
+@app.delete("/goals/{goal_id}", status_code=204)
+def delete_goal(goal_id: str, db: Database = Depends(get_db)):
+    if not db.delete_goal(goal_id):
+        raise HTTPException(404)
+
+
+# ---------------------------------------------------------------------------
+# Coach Dashboard
+# ---------------------------------------------------------------------------
+
+def _build_brief(goals: list, due_counts: dict, week_done: int) -> str:
+    focus = min(goals, key=lambda g: g.priority) if goals else None
+    total_due = sum(due_counts.values())
+    parts = []
+    if focus:
+        parts.append(f"Focus: {focus.title}.")
+    if total_due > 0:
+        items = []
+        if due_counts.get("questions"):
+            items.append(f"{due_counts['questions']} question{'s' if due_counts['questions'] != 1 else ''}")
+        if due_counts.get("problems"):
+            items.append(f"{due_counts['problems']} problem{'s' if due_counts['problems'] != 1 else ''}")
+        if due_counts.get("entries"):
+            items.append(f"{due_counts['entries']} vocab item{'s' if due_counts['entries'] != 1 else ''}")
+        if due_counts.get("concepts"):
+            items.append(f"{due_counts['concepts']} concept{'s' if due_counts['concepts'] != 1 else ''}")
+        parts.append(f"{', '.join(items)} due today.")
+    else:
+        parts.append("You're all caught up on reviews.")
+    if week_done > 0:
+        parts.append(f"{week_done} task{'s' if week_done != 1 else ''} completed this week.")
+    return " ".join(parts)
+
+
+@app.get("/coach/dashboard")
+def get_coach_dashboard(db: Database = Depends(get_db)):
+    goals = db.list_goals()
+    due_counts = db.get_due_counts()
+    week_done = db.get_week_done_count()
+    today = datetime.now().strftime("%Y-%m-%d")
+    plan = db.get_plan(today)
+    if plan is None:
+        plan = _generate_plan(today, db)
+        db.save_plan(plan)
+    focus_goal = min(goals, key=lambda g: g.priority) if goals else None
+    brief = _build_brief(goals, due_counts, week_done)
+    return {
+        "focus_goal": focus_goal,
+        "brief": brief,
+        "due_counts": due_counts,
+        "week_done": week_done,
+        "plan": plan,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Question Attempts
+# ---------------------------------------------------------------------------
+
+class CreateAttemptRequest(BaseModel):
+    response_text: str
+    coverage: list[dict] = []
+    ai_feedback: Optional[str] = None
+    score: float = 0.0
+
+
+class EvaluateRequest(BaseModel):
+    response_text: Annotated[str, Field(min_length=1)]
+
+
+@app.get("/questions/{question_id}/attempts")
+def list_attempts(question_id: str, db: Database = Depends(get_db)):
+    if not db.get_question(question_id):
+        raise HTTPException(404)
+    return db.list_attempts(question_id)
+
+
+@app.post("/questions/{question_id}/attempts")
+def create_attempt(question_id: str, req: CreateAttemptRequest, db: Database = Depends(get_db)):
+    if not db.get_question(question_id):
+        raise HTTPException(404)
+    import uuid
+    a = QuestionAttempt(
+        id=str(uuid.uuid4()),
+        question_id=question_id,
+        response_text=req.response_text,
+        coverage=req.coverage,
+        ai_feedback=req.ai_feedback,
+        score=req.score,
+        attempted_at=datetime.now(),
+    )
+    return db.create_attempt(a)
+
+
+@app.delete("/attempts/{attempt_id}", status_code=204)
+def delete_attempt(attempt_id: str, db: Database = Depends(get_db)):
+    if not db.delete_attempt(attempt_id):
+        raise HTTPException(404)
+
+
+@app.post("/questions/{question_id}/evaluate")
+def evaluate_question(question_id: str, req: EvaluateRequest, db: Database = Depends(get_db)):
+    question = db.get_question(question_id)
+    if not question:
+        raise HTTPException(404)
+    result = ai.evaluate_answer(question, req.response_text)
+    import uuid
+    feedback_text = None
+    if result.get("expression_feedback"):
+        lines = [f"{f['original']} → {f['suggestion']}" for f in result["expression_feedback"]]
+        feedback_text = "\n".join(lines)
+    attempt = QuestionAttempt(
+        id=str(uuid.uuid4()),
+        question_id=question_id,
+        response_text=req.response_text,
+        coverage=result.get("coverage", []),
+        ai_feedback=feedback_text,
+        score=result.get("score", 0.0),
+        attempted_at=datetime.now(),
+    )
+    db.create_attempt(attempt)
+    return result
 
 
 # ---------------------------------------------------------------------------

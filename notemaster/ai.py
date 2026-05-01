@@ -523,3 +523,99 @@ def classify_inbox_item(item: InboxItem, client=None) -> InboxClassification:
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     data = json.loads(raw)
     return InboxClassification(**data)
+
+
+_ANSWER_EVAL_SYSTEM = """\
+You are an interview coach evaluating a candidate's answer.
+
+Given a question, its key points, and the candidate's response, return JSON only — no markdown:
+{
+  "coverage": [
+    {"point": "<key point text>", "hit": true|false, "note": "<one sentence why>"}
+  ],
+  "expression_feedback": [
+    {"original": "<exact phrase from response>", "suggestion": "<better phrasing>", "issue": "<grammar|informal|unclear|word_choice>"}
+  ],
+  "score": <float 0.0-1.0>
+}
+
+score = (points hit) / (total points). If no key points, score based on overall quality.
+expression_feedback: flag up to 3 issues max. Empty array if expression is good.
+""".strip()
+
+
+def evaluate_answer(question, response_text: str, client=None) -> dict:
+    provider = _provider_from_client(client) if client is not None else _get_provider()
+    key_points_str = "\n".join(f"- {kp['text']}" for kp in (question.key_points or []))
+    user_msg = (
+        f"Question: {question.question}\n\n"
+        f"Key points to cover:\n{key_points_str or '(none specified)'}\n\n"
+        f"Candidate's response:\n{response_text}"
+    )
+    raw = provider.complete(_ANSWER_EVAL_SYSTEM, [{"role": "user", "content": user_msg}], temperature=0.2).strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    try:
+        result = json.loads(raw)
+    except Exception as exc:
+        raise ValueError(f"invalid evaluate_answer response: {raw!r}") from exc
+    return {
+        "coverage": result.get("coverage", []),
+        "expression_feedback": result.get("expression_feedback", []),
+        "score": float(result.get("score", 0.0)),
+    }
+
+
+_KEY_POINTS_SYSTEM = """\
+Extract the key points that a strong answer to this interview question must cover.
+Return a JSON array of strings — no markdown, no extra text:
+["point 1", "point 2", "point 3"]
+Each point should be concise (under 10 words) and independently assessable.
+""".strip()
+
+
+def extract_key_points(question: str, answer: str, client=None) -> list[str]:
+    provider = _provider_from_client(client) if client is not None else _get_provider()
+    user_msg = f"Question: {question}\n\nIdeal answer: {answer}"
+    raw = provider.complete(_KEY_POINTS_SYSTEM, [{"role": "user", "content": user_msg}], temperature=0.2).strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    try:
+        points = json.loads(raw)
+    except Exception as exc:
+        raise ValueError(f"invalid extract_key_points response: {raw!r}") from exc
+    return [str(p) for p in points]
+
+
+_SD_SECTIONS_SYSTEM = """\
+You are a system design interview coach following the Hello Interview structured format.
+Given a system design problem title, generate exactly 6 practice Q&A sections:
+
+1. requirements — "What are the functional and non-functional requirements for <title>?"
+2. entities — "What are the core entities and their key fields for <title>?"
+3. api — "Design the API endpoints for <title>."
+4. hld — "Draw and explain the high-level design for <title>."
+5. deep_dive_scaling — "How would you scale <title> to handle millions of requests per second?"
+6. deep_dive_tradeoffs — "What are the key design tradeoffs you made for <title>?"
+
+Respond ONLY with a JSON array — no markdown fences, no extra text:
+[{"round":"<section_key>","question":"...","answer":"..."}]
+
+Each answer should be 3-5 sentences covering the key points a senior engineer would mention.
+""".strip()
+
+
+def generate_sd_sections(problem_title: str, problem_type: str = "sd", client=None) -> list[dict]:
+    provider = _provider_from_client(client) if client is not None else _get_provider()
+    prompt = f"Problem: {problem_title}\nType: {problem_type.upper()}"
+    raw = provider.complete(_SD_SECTIONS_SYSTEM, [{"role": "user", "content": prompt}], temperature=0.3).strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    try:
+        items = json.loads(raw)
+    except Exception as exc:
+        raise ValueError(f"invalid generate_sd_sections response: {raw!r}") from exc
+    return [
+        {"round": item.get("round", ""), "question": item.get("question", ""), "answer": item.get("answer", "")}
+        for item in items
+    ]
