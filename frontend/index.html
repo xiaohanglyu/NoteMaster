@@ -258,6 +258,9 @@
     .btn-tts:hover { border-color: var(--accent); color: var(--accent); }
     .btn-enrich { background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 12px; padding: 4px 10px; cursor: pointer; flex-shrink: 0; }
     .btn-enrich:hover { border-color: var(--yellow); color: var(--yellow); }
+    .sync-badge { font-size: 11px; padding: 2px 6px; border-radius: 99px; flex-shrink: 0; }
+    .sync-badge.anki-ready { color: var(--green); border: 1px solid var(--green); opacity: .7; }
+    .sync-badge.anki-warn  { color: var(--yellow); border: 1px solid var(--yellow); opacity: .7; }
     .due-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; background: var(--accent); color: #fff; border-radius: 99px; font-size: 11px; font-weight: 700; padding: 0 5px; }
 
     /* ═══ USAGE BOX (entry review card) ═══ */
@@ -267,9 +270,12 @@
     .usage-pattern { display: inline; font-size: 14px; font-weight: 600; color: var(--yellow); font-family: 'SF Mono', ui-monospace, monospace; background: #eab30812; border-radius: 5px; padding: 1px 7px; line-height: 1.6; }
     .entry-pattern { margin: 6px 0 10px; }
     .entry-examples { margin-top: 8px; }
-    .entry-example { font-size: 13px; color: var(--muted); line-height: 1.65; padding: 5px 0; border-bottom: 1px solid var(--border); }
+    .entry-example { font-size: 13px; color: var(--muted); line-height: 1.65; padding: 5px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 6px; }
     .entry-example:last-child { border-bottom: none; }
     .entry-example em { color: var(--text); font-style: normal; }
+    .entry-example-text { flex: 1; }
+    .btn-tts-ex { background: none; border: none; color: var(--muted); font-size: 12px; padding: 0 2px; cursor: pointer; flex-shrink: 0; opacity: 0.5; line-height: 1.65; }
+    .btn-tts-ex:hover { opacity: 1; color: var(--accent); }
 
     /* ═══ KANBAN BOARD ═══ */
     #view-jobs { max-width: none !important; padding: var(--gap); }
@@ -588,7 +594,8 @@
     <div class="entry-capture">
       <input type="text" id="entry-input" placeholder="Type a phrase, word, or sentence…" autocomplete="off" autocorrect="off" spellcheck="false"
         onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); submitEntry(); }">
-      <input type="text" id="entry-note" class="entry-capture-note" placeholder="Your context sentence (e.g. Read from DB as fallback)" autocomplete="off">
+      <input type="text" id="entry-note" class="entry-capture-note" placeholder="Context sentence (e.g. Read from DB as fallback)" autocomplete="off">
+      <input type="text" id="entry-personal-note" class="entry-capture-note" placeholder="Your notes" autocomplete="off">
       <div class="capture-row">
         <button class="btn btn-primary" onclick="submitEntry()">Add</button>
         <button class="btn btn-secondary" style="flex:0 0 auto;width:auto;padding:12px 14px" onclick="document.getElementById('ocr-input').click()" title="Import from photo">📷</button>
@@ -601,7 +608,7 @@
   <div id="bulk-toolbar">
     <span id="bulk-count" style="font-size:13px;color:var(--accent)">0 selected</span>
     <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:13px;margin-left:auto" onclick="clearSelection()">Clear</button>
-    <button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:13px" onclick="openExpandPopover(null, true)">AI expand selected</button>
+    <button class="btn btn-primary"   style="width:auto;padding:6px 12px;font-size:13px" onclick="openExpandPopover(null, true)">AI expand selected</button>
   </div>
 
   <!-- Tag filter bar -->
@@ -616,6 +623,63 @@
 
   <!-- Entry list -->
   <div id="entry-list"></div>
+</div>
+
+<!-- Anki push modal -->
+<div id="anki-modal" class="anki-push-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:300;padding:var(--gap);align-items:flex-start;justify-content:center;overflow-y:auto" onclick="if(event.target===this)closeAnkiModal()">
+  <div class="card" style="width:100%;max-width:500px;margin:40px auto">
+    <div class="row" style="margin-bottom:var(--gap)">
+      <h2 style="margin:0;font-size:16px">Push to Anki</h2>
+      <button onclick="closeAnkiModal()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+
+    <!-- Connectivity status -->
+    <div id="anki-connectivity" style="display:none;margin-bottom:var(--gap);padding:10px 12px;border-radius:8px;font-size:13px"></div>
+
+    <!-- Setup guide (shown on connection failure) -->
+    <div id="anki-setup-guide" style="display:none;margin-bottom:var(--gap);font-size:13px;line-height:1.7;color:var(--muted)">
+      <div style="font-weight:600;color:var(--text);margin-bottom:6px">Anki not detected — setup required</div>
+      <ol style="padding-left:18px">
+        <li>Open Anki</li>
+        <li>Install AnkiConnect addon — code <code style="background:var(--surface);padding:1px 5px;border-radius:4px">2055492159</code></li>
+        <li>In AnkiConnect config add <code style="background:var(--surface);padding:1px 5px;border-radius:4px">"webCorsOriginList": ["http://localhost:8000"]</code></li>
+        <li>Restart Anki, then <button class="btn btn-secondary" style="width:auto;padding:3px 10px;font-size:12px;display:inline" onclick="openAnkiModal()">retry</button></li>
+      </ol>
+    </div>
+
+    <!-- Main form (hidden until connected) -->
+    <div id="anki-form" style="display:none">
+      <div style="margin-bottom:var(--gap)">
+        <div class="section-title" style="margin-bottom:4px">Deck</div>
+        <div style="display:flex;gap:8px">
+          <select id="anki-deck" style="flex:1"></select>
+          <input type="text" id="anki-deck-new" placeholder="or new deck name…" style="flex:1">
+        </div>
+      </div>
+
+      <div style="margin-bottom:var(--gap)">
+        <div class="section-title" style="margin-bottom:4px">Note type</div>
+        <select id="anki-model" style="width:100%" onchange="_onAnkiModelChange()"></select>
+      </div>
+
+      <!-- Field mapping (shown when existing model selected) -->
+      <div id="anki-field-map" style="display:none;margin-bottom:var(--gap)">
+        <div class="section-title" style="margin-bottom:8px">Field mapping</div>
+        <div id="anki-field-map-rows" style="display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center;font-size:13px"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">Word must be mapped. Others are optional.</div>
+      </div>
+
+      <!-- Push result -->
+      <div id="anki-result" style="display:none;margin-bottom:var(--gap);padding:10px 12px;border-radius:8px;font-size:13px"></div>
+
+      <!-- Summary + confirm -->
+      <div id="anki-summary" style="font-size:13px;color:var(--muted);margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" style="width:auto;padding:8px 16px" onclick="closeAnkiModal()">Cancel</button>
+        <button class="btn btn-primary"   style="width:auto;padding:8px 16px" id="anki-push-btn" onclick="pushToAnki()">Push to Anki</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- AI expand popover -->
@@ -1077,6 +1141,7 @@
       <button class="admin-tab" data-tab="applications" onclick="switchAdminTab(this,'applications')">Applications</button>
       <button class="admin-tab" data-tab="questions" onclick="switchAdminTab(this,'questions')">Questions</button>
       <button class="admin-tab" data-tab="import" onclick="switchAdminTab(this,'import')">Import</button>
+      <button class="admin-tab" data-tab="anki" onclick="switchAdminTab(this,'anki');openAdminAnkiExport()">Anki</button>
       <button class="admin-tab" data-tab="sync" onclick="switchAdminTab(this,'sync');openSync()">Sync</button>
       <button class="admin-tab" style="white-space:nowrap" data-tab="providers" onclick="switchAdminTab(this,'providers');loadProviders()">AI Providers</button>
     </div>
@@ -1089,6 +1154,45 @@
     <!-- English tab -->
     <div id="admin-tab-english" class="admin-panel" style="display:none">
       <div id="admin-entries-list"></div>
+    </div>
+
+    <!-- Anki export tab -->
+    <div id="admin-tab-anki" id="admin-anki-export" class="admin-panel" style="display:none">
+      <!-- Filter bar -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <select id="anki-export-tag" style="font-size:13px" onchange="filterAnkiExport()">
+          <option value="">All tags</option>
+          <option value="pronunciation">pronunciation</option>
+          <option value="expression">expression</option>
+          <option value="vocabulary">vocabulary</option>
+          <option value="phrase">phrase</option>
+          <option value="interview">interview</option>
+        </select>
+        <select id="anki-export-readiness" style="font-size:13px" onchange="filterAnkiExport()">
+          <option value="">All readiness</option>
+          <option value="ready">✓ Ready only</option>
+          <option value="warn">⚠ Missing fields</option>
+        </select>
+        <input type="text" id="anki-export-search" placeholder="Search…" style="font-size:13px;flex:1;min-width:120px" oninput="filterAnkiExport()">
+      </div>
+
+      <!-- Select all + match summary -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;font-size:13px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="anki-export-select-all" onchange="selectAllAnkiEntries(this.checked)">
+          <span>Select all</span>
+        </label>
+        <span id="anki-export-match-count" style="color:var(--muted)"></span>
+      </div>
+
+      <!-- Entry list -->
+      <div id="anki-export-list" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:420px;overflow-y:auto"></div>
+
+      <!-- Summary + push -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <span id="anki-export-summary" style="font-size:13px;color:var(--muted)">No entries selected</span>
+        <button class="btn btn-primary" style="width:auto;padding:8px 18px" onclick="openAnkiModalFromAdmin()">Push to Anki</button>
+      </div>
     </div>
 
     <!-- Applications tab -->
@@ -2461,6 +2565,11 @@ function parseContextNote(note) {
 
 function _d(e) { return e.data || {}; }
 
+function isEntryReady(e) {
+  const d = _d(e);
+  return !!(d.phonetics && d.translation);
+}
+
 function _entryParts(e) {
   const d = _d(e);
   const phonetics = d.phonetics
@@ -2470,12 +2579,15 @@ function _entryParts(e) {
     ? `<div class="entry-translation"><span class="inline-field" contenteditable="false" data-entry="${e.id}" data-field="translation" onblur="saveInlineField(this)" onkeydown="inlineKeydown(event,this)">${escHtml(d.translation)}</span></div>`
     : "";
   const encounter = e.source_ref
-    ? `<div class="entry-encounter"><span class="entry-encounter-label">My context</span>${escHtml(e.source_ref)}</div>`
+    ? `<div class="entry-encounter" style="display:flex;align-items:flex-start;gap:6px"><span class="entry-encounter-label">My context</span><span style="flex:1">${escHtml(e.source_ref)}</span><button class="btn-tts-ex" onclick="speakText('${escAttr(e.source_ref)}')" title="Listen">🔊</button><button class="btn-tts-ex" id="ctx-rec-btn-${e.id}" onclick="toggleContextRecording('${e.id}','${escAttr(e.source_ref)}')" title="Shadow">🎙</button></div><div id="ctx-rec-result-${e.id}" style="display:none;margin:4px 0 4px 0"></div>`
+    : "";
+  const personalNote = d.context_note
+    ? `<div class="entry-encounter" style="border-color:var(--muted)"><span class="entry-encounter-label" style="color:var(--muted)">Notes</span><span class="inline-field" style="display:block;white-space:pre-wrap" contenteditable="false" data-entry="${e.id}" data-field="context_note" data-multiline="true" onblur="saveInlineField(this)" onkeydown="inlineKeydown(event,this)">${escHtml(d.context_note)}</span></div>`
     : "";
   const examples = d.examples?.length
-    ? `<div class="entry-examples">${d.examples.map(ex => `<div class="entry-example">${escHtml(ex)}</div>`).join("")}</div>`
+    ? `<div class="entry-examples">${d.examples.map(ex => `<div class="entry-example"><span class="entry-example-text">${escHtml(ex)}</span><button class="btn-tts-ex" onclick="speakText('${escAttr(ex)}')" title="Listen">🔊</button></div>`).join("")}</div>`
     : "";
-  return { phonetics, translation, encounter, examples };
+  return { phonetics, translation, encounter, personalNote, examples };
 }
 
 function _extendedHTML(e) {
@@ -2498,7 +2610,7 @@ function _extendedHTML(e) {
 }
 
 function entryCardHTML(e) {
-  const { phonetics, translation, encounter, examples } = _entryParts(e);
+  const { phonetics, translation, encounter, personalNote, examples } = _entryParts(e);
   const extended = _extendedHTML(e);
   const d = _d(e);
   const enrichBtn = !d.phonetics
@@ -2518,6 +2630,7 @@ function entryCardHTML(e) {
       ${phonetics}
       ${translation}
       ${encounter}
+      ${personalNote}
       ${examples}
       ${extended}
       <div class="entry-meta" style="margin-top:10px">
@@ -2540,14 +2653,17 @@ function escAttr(s) {
 async function submitEntry() {
   const input = document.getElementById("entry-input");
   const note = document.getElementById("entry-note");
+  const personalNote = document.getElementById("entry-personal-note");
   const text = input.value.trim();
   if (!text) return;
   try {
     const body = { text };
     if (note.value.trim()) body.source_ref = note.value.trim();
+    if (personalNote.value.trim()) body.data = { context_note: personalNote.value.trim() };
     await api("POST", "/entries", body);
     input.value = "";
     note.value = "";
+    personalNote.value = "";
     input.focus();
     await loadEntries();
   } catch (e) { alert("Error adding entry: " + e.message); }
@@ -2596,15 +2712,24 @@ async function enrichEntry(entryId) {
 // ---------------------------------------------------------------------------
 
 function inlineKeydown(event, el) {
-  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); el.blur(); }
-  if (event.key === "Escape") { el.dataset.original && (el.textContent = el.dataset.original); el.contentEditable = "false"; }
+  if (event.key === "Enter") {
+    if (el.dataset.multiline) {
+      // allow Enter for newlines; Escape to cancel, blur to save
+    } else if (!event.shiftKey) {
+      event.preventDefault(); el.blur();
+    }
+  }
+  if (event.key === "Escape") {
+    el.dataset.multiline ? (el.innerText = el.dataset.original || "") : (el.textContent = el.dataset.original || "");
+    el.contentEditable = "false";
+  }
 }
 
 async function saveInlineField(el) {
   el.contentEditable = "false";
   const entryId = el.dataset.entry;
   const field = el.dataset.field;
-  const val = el.textContent.trim();
+  const val = (el.dataset.multiline ? el.innerText : el.textContent).trim();
   if (val === (el.dataset.original || "")) return;
 
   const isTopLevel = field === "text";
@@ -2620,7 +2745,7 @@ async function saveInlineField(el) {
 document.addEventListener("click", e => {
   const field = e.target.closest(".inline-field");
   if (field) {
-    field.dataset.original = field.textContent;
+    field.dataset.original = field.dataset.multiline ? field.innerText : field.textContent;
     field.contentEditable = "true";
     field.focus();
     const range = document.createRange();
@@ -2723,6 +2848,255 @@ function _updateBulkToolbar() {
   document.getElementById("entry-list").classList.toggle("select-mode", count > 0);
 }
 
+// ---------------------------------------------------------------------------
+// buildNote — pure function: maps an Entry to an AnkiConnect note payload
+// fieldMap: null → use NoteMaster default model fields
+//           object → { word, phonetics, translation, examples, notes, context }
+//                    values are target Anki field names, or "" to skip
+// ---------------------------------------------------------------------------
+function buildNote(entry, deckName, modelName, fieldMap) {
+  const d = entry.data || {};
+  let fields;
+  if (fieldMap === null) {
+    fields = {
+      "Word":        entry.text,
+      "Phonetics":   d.phonetics    || "",
+      "Translation": d.translation  || "",
+      "Examples":    (d.examples || []).join("<br>"),
+      "Notes":       d.context_note || "",
+      "Context":     entry.source_ref || "",
+    };
+  } else {
+    const src = {
+      word:        entry.text,
+      phonetics:   d.phonetics    || "",
+      translation: d.translation  || "",
+      examples:    (d.examples || []).join("<br>"),
+      notes:       d.context_note || "",
+      context:     entry.source_ref || "",
+    };
+    fields = {};
+    for (const [srcKey, ankiField] of Object.entries(fieldMap)) {
+      if (ankiField) fields[ankiField] = src[srcKey] || "";
+    }
+  }
+  return {
+    deckName,
+    modelName,
+    fields,
+    options: { allowDuplicate: false, duplicateScope: "deck" },
+    tags: entry.tags || [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Anki modal
+// ---------------------------------------------------------------------------
+const NOTEMASTER_MODEL = "NoteMaster";
+const NM_MODEL_FIELDS  = ["Word", "Phonetics", "Translation", "Examples", "Notes", "Context"];
+const NM_SRC_KEYS      = ["word", "phonetics", "translation", "examples", "notes", "context"];
+const NM_FRONT_TMPL    = `<div style="font-size:2em;font-weight:700;text-align:center">{{Word}}</div>`;
+const NM_BACK_TMPL     = `{{FrontSide}}<hr id="answer">
+<div style="color:#888;font-style:italic;text-align:center">{{Phonetics}}</div>
+<div style="font-size:1.2em;text-align:center;margin:8px 0">{{Translation}}</div>
+<div style="font-size:.9em;color:#666;line-height:1.6">{{Examples}}</div>
+{{#Notes}}<div style="margin-top:8px;font-size:.85em;border-top:1px solid #eee;padding-top:8px">{{Notes}}</div>{{/Notes}}
+{{#Context}}<div style="font-size:.85em;color:#999;font-style:italic;margin-top:4px">{{Context}}</div>{{/Context}}`;
+
+// ---------------------------------------------------------------------------
+// AnkiConnect client — calls the local AnkiConnect addon API (port 8765)
+// ---------------------------------------------------------------------------
+async function ankiConnect(action, params = {}) {
+  const resp = await fetch("http://localhost:8765", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, version: 6, params }),
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error);
+  return data.result;
+}
+
+async function openAnkiModal(ids) {
+  const sourceIds = ids || _selectedEntryIds;
+  if (sourceIds.size === 0) return;
+  _ankiModalIds = sourceIds;
+  const modal = document.getElementById("anki-modal");
+  modal.style.display = "flex";
+  // reset state
+  ["anki-connectivity","anki-setup-guide","anki-form","anki-result"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = "none";
+  });
+
+  const connEl = document.getElementById("anki-connectivity");
+  connEl.style.display = "block";
+  connEl.style.background = "var(--surface)";
+  connEl.style.color = "var(--muted)";
+  connEl.textContent = "Connecting to Anki…";
+
+  try {
+    await ankiConnect("version");
+    connEl.style.background = "#22c55e10";
+    connEl.style.color = "var(--green)";
+    connEl.textContent = "✓ Anki connected";
+    await _populateAnkiDecks();
+    await _populateAnkiModels();
+    _refreshAnkiSummary(_ankiModalIds);
+    document.getElementById("anki-form").style.display = "block";
+  } catch (_) {
+    connEl.style.background = "#ef444410";
+    connEl.style.color = "var(--red)";
+    connEl.textContent = "✗ Cannot reach Anki";
+    document.getElementById("anki-setup-guide").style.display = "block";
+  }
+}
+
+function closeAnkiModal() {
+  document.getElementById("anki-modal").style.display = "none";
+}
+
+async function _populateAnkiDecks() {
+  const decks = await ankiConnect("deckNames");
+  const sel = document.getElementById("anki-deck");
+  sel.innerHTML = decks.sort().map(d => `<option value="${escAttr(d)}">${escHtml(d)}</option>`).join("");
+}
+
+async function _populateAnkiModels() {
+  const models = await ankiConnect("modelNames");
+  const sel = document.getElementById("anki-model");
+  sel.innerHTML = `<option value="__notemaster__">NoteMaster (auto-create)</option>` +
+    models.sort().map(m => `<option value="${escAttr(m)}">${escHtml(m)}</option>`).join("");
+  document.getElementById("anki-field-map").style.display = "none";
+}
+
+async function _onAnkiModelChange() {
+  const model = document.getElementById("anki-model").value;
+  const mapDiv = document.getElementById("anki-field-map");
+  const rowsDiv = document.getElementById("anki-field-map-rows");
+  if (model === "__notemaster__") {
+    mapDiv.style.display = "none";
+    return;
+  }
+  try {
+    const ankiFields = await ankiConnect("modelFieldNames", { modelName: model });
+    const opts = `<option value="">— skip —</option>` +
+      ankiFields.map(f => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join("");
+    const labels = ["Word *", "Phonetics", "Translation", "Examples", "Notes", "Context"];
+    rowsDiv.innerHTML = NM_SRC_KEYS.map((key, i) =>
+      `<label style="color:var(--muted)">${labels[i]}</label>
+       <select data-src="${key}" style="font-size:13px">${opts}</select>`
+    ).join("");
+    // auto-match by name similarity
+    ankiFields.forEach(f => {
+      const fl = f.toLowerCase();
+      const match = NM_SRC_KEYS.find(k => fl.includes(k) || k.includes(fl));
+      if (match) {
+        const sel = rowsDiv.querySelector(`[data-src="${match}"]`);
+        if (sel) sel.value = f;
+      }
+    });
+    mapDiv.style.display = "block";
+  } catch (_) {}
+}
+
+function _getFieldMap() {
+  const model = document.getElementById("anki-model").value;
+  if (model === "__notemaster__") return null;
+  const map = {};
+  document.querySelectorAll("#anki-field-map-rows select").forEach(sel => {
+    map[sel.dataset.src] = sel.value;
+  });
+  return map;
+}
+
+function _getAnkiDeckName() {
+  const newName = document.getElementById("anki-deck-new").value.trim();
+  return newName || document.getElementById("anki-deck").value;
+}
+
+function _getAnkiModelName() {
+  const val = document.getElementById("anki-model").value;
+  return val === "__notemaster__" ? NOTEMASTER_MODEL : val;
+}
+
+function _refreshAnkiSummary(ids) {
+  const count = ids.size;
+  const summaryEl = document.getElementById("anki-summary");
+  if (!summaryEl) return;
+  const ready = [...ids].filter(id => {
+    const row = document.querySelector(`[data-anki-id="${id}"]`);
+    return row?.dataset.ready === "1";
+  }).length;
+  const warn = count - ready;
+  summaryEl.textContent = warn === 0
+    ? `Pushing ${count} notes · ${ready} ✓ ready`
+    : `Pushing ${count} notes · ${ready} ✓ ready · ${warn} ⚠ missing fields`;
+}
+
+async function pushToAnki() {
+  const btn = document.getElementById("anki-push-btn");
+  const resultEl = document.getElementById("anki-result");
+  btn.disabled = true;
+  btn.textContent = "Pushing…";
+  resultEl.style.display = "none";
+
+  const deckName  = _getAnkiDeckName();
+  const modelName = _getAnkiModelName();
+  const fieldMap  = _getFieldMap();
+
+  try {
+    // 1. ensure deck exists
+    await ankiConnect("createDeck", { deck: deckName });
+
+    // 2. ensure NoteMaster model exists (auto-create only)
+    if (fieldMap === null) {
+      const existing = await ankiConnect("modelNames");
+      if (!existing.includes(NOTEMASTER_MODEL)) {
+        await ankiConnect("createModel", {
+          modelName: NOTEMASTER_MODEL,
+          inOrderFields: NM_MODEL_FIELDS,
+          css: ".card { font-family: -apple-system, sans-serif; font-size: 16px; text-align: center; }",
+          cardTemplates: [{
+            Name: "NoteMaster Card",
+            Front: NM_FRONT_TMPL,
+            Back:  NM_BACK_TMPL,
+          }],
+        });
+      }
+    }
+
+    // 3. fetch entry data for selected ids and build notes
+    const entries = await Promise.all(
+      [..._ankiModalIds].map(id => api("GET", `/entries/${id}`))
+    );
+    const notes = entries.map(e => buildNote(e, deckName, modelName, fieldMap));
+
+    // 4. push — AnkiConnect returns null per note on success, string on duplicate
+    const results = await ankiConnect("addNotes", { notes });
+    const added   = results.filter(r => r !== null).length;
+    const skipped = results.filter(r => r === null).length;
+
+    resultEl.style.display = "block";
+    resultEl.style.background = "#22c55e10";
+    resultEl.style.border = "1px solid var(--green)";
+    resultEl.style.borderRadius = "8px";
+    resultEl.style.padding = "10px 12px";
+    resultEl.innerHTML = `<span style="color:var(--green);font-weight:600">✓ ${added} added</span>`
+      + (skipped ? ` · <span style="color:var(--muted)">${skipped} duplicate${skipped > 1 ? "s" : ""} skipped</span>` : "");
+    btn.textContent = "Done";
+  } catch (err) {
+    resultEl.style.display = "block";
+    resultEl.style.background = "#ef444410";
+    resultEl.style.border = "1px solid var(--red)";
+    resultEl.style.borderRadius = "8px";
+    resultEl.style.padding = "10px 12px";
+    resultEl.innerHTML = `<span style="color:var(--red)">✗ ${escHtml(err.message)}</span>`;
+    btn.disabled = false;
+    btn.textContent = "Push to Anki";
+  }
+}
+
 async function toggleEntryRecording() {
   if (state.entryRecording) { state.entryMediaRecorder?.stop(); return; }
   const btn = document.getElementById("entry-record-btn");
@@ -2771,6 +3145,63 @@ async function toggleEntryRecording() {
     btn.classList.add("recording");
     btn.textContent = "⏹";
   } catch (e) { alert("Microphone access denied."); }
+}
+
+let _ctxRecorder = null;
+let _ctxChunks = [];
+
+async function toggleContextRecording(entryId, reference) {
+  const btn = document.getElementById(`ctx-rec-btn-${entryId}`);
+  const resultEl = document.getElementById(`ctx-rec-result-${entryId}`);
+
+  if (_ctxRecorder && _ctxRecorder.state === "recording") { _ctxRecorder.stop(); return; }
+
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { alert("Microphone access denied."); return; }
+
+  const mimeType = getBestMimeType();
+  _ctxChunks = [];
+  _ctxRecorder = new MediaRecorder(stream, { mimeType });
+  _ctxRecorder.ondataavailable = e => { if (e.data.size > 0) _ctxChunks.push(e.data); };
+  _ctxRecorder.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    btn.textContent = "🎙";
+    btn.classList.remove("recording");
+
+    const blob = new Blob(_ctxChunks, { type: mimeType });
+    if (blob.size === 0) return;
+
+    resultEl.style.display = "block";
+    resultEl.innerHTML = `<span style="color:var(--muted);font-size:12px">Processing…</span>`;
+    const form = new FormData();
+    form.append("audio", blob, `rec.${mimeType.split("/")[1].split(";")[0]}`);
+    form.append("reference", reference);
+    try {
+      const resp = await fetch("/shadow", { method: "POST", body: form });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      const pct = Math.round(data.overall_score * 100);
+      const color = pct >= 90 ? "var(--green)" : pct >= 70 ? "var(--accent)" : "var(--red)";
+      const words = (data.words || []).map(w => {
+        if (w.status === "ok") return `<span style="color:var(--text)">${escHtml(w.reference)} </span>`;
+        if (w.status === "substituted") return `<span style="color:var(--red);text-decoration:underline" title="heard: ${escAttr(w.heard)}">${escHtml(w.reference)} </span>`;
+        if (w.status === "missing") return `<span style="color:var(--red);opacity:.5">${escHtml(w.reference)} </span>`;
+        return `<span style="color:var(--muted)">${escHtml(w.reference)} </span>`;
+      }).join("");
+      resultEl.innerHTML = `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px">
+          <span style="font-weight:700;color:${color}">${pct}%</span>
+          <span style="margin-left:8px;line-height:1.8">${words}</span>
+          ${data.feedback ? `<div style="color:var(--muted);margin-top:4px">${escHtml(data.feedback)}</div>` : ""}
+        </div>`;
+    } catch (e) {
+      resultEl.innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${e.message}</span>`;
+    }
+  };
+  _ctxRecorder.start(250);
+  btn.textContent = "⏹";
+  btn.classList.add("recording");
 }
 
 async function seedCurriculum() {
@@ -2840,7 +3271,8 @@ async function startEntryReview() {
 
 function showEntryReviewCard(entry) {
   const list = document.getElementById("entry-list");
-  const { phonetics, translation, encounter, examples } = _entryParts(entry);
+  const { phonetics, translation, encounter, personalNote, examples } = _entryParts(entry);
+  const extended = _extendedHTML(entry);
 
   list.innerHTML = `
     <div class="card" id="entry-review-card">
@@ -2853,9 +3285,11 @@ function showEntryReviewCard(entry) {
       </div>
       ${phonetics}
       <div id="entry-pronunciation-result" style="display:none;margin-bottom:14px"></div>
-
+      ${translation}
       ${encounter}
+      ${personalNote}
       ${examples}
+      ${extended}
 
       <div style="margin-top:var(--gap)">
         <div class="section-title">Did you remember it?</div>
@@ -4431,7 +4865,111 @@ async function loadAdminTab(tab) {
   else if (tab === "applications") await loadAdminApps();
   else if (tab === "questions") await loadAdminQuestions();
   else if (tab === "providers") await loadProviders();
+  else if (tab === "anki") await openAdminAnkiExport();
 }
+
+// ---------------------------------------------------------------------------
+// Admin — Anki Export (#63 + #64)
+// ---------------------------------------------------------------------------
+
+let _ankiAllEntries = [];   // full entry list loaded once
+const _ankiExportIds = new Set();  // selected entry ids for push
+
+async function openAdminAnkiExport() {
+  if (_ankiAllEntries.length === 0) {
+    _ankiAllEntries = await api("GET", "/entries");
+  }
+  filterAnkiExport();
+}
+
+function filterAnkiExport() {
+  const tag      = document.getElementById("anki-export-tag")?.value || "";
+  const readiness = document.getElementById("anki-export-readiness")?.value || "";
+  const search   = (document.getElementById("anki-export-search")?.value || "").toLowerCase();
+
+  const filtered = _ankiAllEntries.filter(e => {
+    if (tag && !(e.tags || []).includes(tag)) return false;
+    if (readiness === "ready" && !isEntryReady(e)) return false;
+    if (readiness === "warn"  &&  isEntryReady(e)) return false;
+    if (search && !e.text.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  _renderAnkiExportList(filtered);
+}
+
+function _renderAnkiExportList(entries) {
+  const listEl = document.getElementById("anki-export-list");
+  const matchEl = document.getElementById("anki-export-match-count");
+  if (!listEl) return;
+
+  const ready = entries.filter(isEntryReady).length;
+  const warn  = entries.length - ready;
+  matchEl.textContent = `${entries.length} matched · ${ready} ✓ ready · ${warn} ⚠ missing`;
+
+  if (entries.length === 0) {
+    listEl.innerHTML = `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">No entries match the filters</div>`;
+    _updateAnkiExportSummary();
+    return;
+  }
+
+  listEl.innerHTML = entries.map(e => {
+    const d = e.data || {};
+    const ready = isEntryReady(e);
+    const checked = _ankiExportIds.has(e.id) ? "checked" : "";
+    return `<div class="admin-row" data-anki-id="${e.id}" data-ready="${ready ? 1 : 0}" style="padding:8px 12px">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;flex:1;min-width:0">
+        <input type="checkbox" ${checked} onchange="_toggleAnkiEntry('${e.id}',this.checked)">
+        <span style="font-size:11px;color:${ready ? 'var(--green)' : 'var(--yellow)'};flex-shrink:0">${ready ? '✓' : '⚠'}</span>
+        <span style="font-weight:600;flex-shrink:0;min-width:140px">${escHtml(e.text)}</span>
+        <span style="color:var(--accent);font-size:12px;font-style:italic;flex-shrink:0">${escHtml(d.phonetics || '—')}</span>
+        <span style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(d.translation || '—')}</span>
+      </label>
+    </div>`;
+  }).join("");
+
+  _updateAnkiExportSummary();
+}
+
+function _toggleAnkiEntry(id, checked) {
+  checked ? _ankiExportIds.add(id) : _ankiExportIds.delete(id);
+  _updateAnkiExportSummary();
+}
+
+function selectAllAnkiEntries(checked) {
+  document.querySelectorAll("#anki-export-list [data-anki-id]").forEach(row => {
+    const id = row.dataset.ankiId;
+    const cb = row.querySelector("input[type=checkbox]");
+    if (cb) cb.checked = checked;
+    checked ? _ankiExportIds.add(id) : _ankiExportIds.delete(id);
+  });
+  _updateAnkiExportSummary();
+}
+
+function _updateAnkiExportSummary() {
+  const summaryEl = document.getElementById("anki-export-summary");
+  if (!summaryEl) return;
+  const count = _ankiExportIds.size;
+  if (count === 0) { summaryEl.textContent = "No entries selected"; return; }
+  const ready = [..._ankiExportIds].filter(id => {
+    const row = document.querySelector(`[data-anki-id="${id}"]`);
+    return row?.dataset.ready === "1";
+  }).length;
+  const warn = count - ready;
+  summaryEl.textContent = warn === 0
+    ? `${count} selected · ${ready} ✓ ready`
+    : `${count} selected · ${ready} ✓ ready · ${warn} ⚠ missing fields`;
+}
+
+async function openAnkiModalFromAdmin() {
+  if (_ankiExportIds.size === 0) { alert("Select at least one entry."); return; }
+  // temporarily expose Admin selection to pushToAnki via a flag
+  _ankiPushSource = "admin";
+  await openAnkiModal(_ankiExportIds);
+}
+
+let _ankiPushSource = "english";
+let _ankiModalIds = _selectedEntryIds;
 
 // ---------------------------------------------------------------------------
 // AI Providers

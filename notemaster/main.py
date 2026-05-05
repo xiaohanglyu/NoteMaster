@@ -1054,6 +1054,24 @@ async def shadow_entry(
     }
 
 
+@app.post("/shadow")
+async def shadow_generic(
+    reference: str = Form(...),
+    audio: UploadFile = File(...),
+):
+    audio_bytes = await audio.read()
+    transcript = stt.transcribe(audio_bytes, mime_type=audio.content_type or "audio/webm")
+    from notemaster import pronunciation
+    result = pronunciation.assess_shadow(reference, transcript)
+    return {
+        "transcript": transcript,
+        "reference": reference,
+        "overall_score": result.overall_score,
+        "words": [{"reference": w.reference, "heard": w.heard, "status": w.status} for w in result.words],
+        "feedback": result.feedback,
+    }
+
+
 # --- Import: file ---
 
 class ImportFileResponse(BaseModel):
